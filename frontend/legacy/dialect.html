@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>사전</title>
+  <meta name="theme-color" content="#151B27">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container site-header__inner" style="justify-content:space-between;gap:12px">
+      <a class="brand" href="index.html">
+        <span class="brand__home">~/gsc</span><span class="brand__sep">/</span><span class="brand__name">jeong-manual</span><span class="brand__path">/dialect.dict</span>
+      </a>
+      <a class="back-link" href="index.html">cd .. ← 홈</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="dict-hero">
+      <div class="container">
+        <span class="sec-file">// 04 dialect.dict</span>
+        <h1>페이지 제목</h1>
+        <p class="dict-hero__ja">日本語サブタイトル — 説明文。</p>
+        <p class="dict-hero__desc">페이지 소개 문단이 들어갑니다. 의미가 확실하지 않은 표현은 <span class="c-yellow mono">@추정</span>으로 표시합니다.</p>
+      </div>
+    </section>
+
+    <section class="container dict-body">
+      <div class="dict-toolbar">
+        <div class="filters" id="dict-filters" role="group" aria-label="태그 필터"></div>
+        <p class="dict-count" id="dict-count" aria-live="polite">0 entries</p>
+      </div>
+
+      <div class="entries" id="dict-entries"></div>
+
+      <div class="card dict-cta">
+        <div>
+          <h2>제보 유도 제목</h2>
+          <p>日本語の案内文。</p>
+        </div>
+        <a class="btn-primary" href="#">$ dict add --anon</a>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="하단 메뉴">
+    <a href="index.html"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg>README</a>
+    <a href="index.html#scenes"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"/></svg>scenes/</a>
+    <a href="dialect.html" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>dict</a>
+    <a href="index.html#thread"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h13"/></svg>thread</a>
+  </nav>
+
+  <script src="js/data.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

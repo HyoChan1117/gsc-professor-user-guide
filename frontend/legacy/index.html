@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>사용 설명서</title>
+  <meta name="theme-color" content="#151B27">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="top">
+
+  <!-- ===================== 헤더 ===================== -->
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" href="#top">
+        <span class="brand__home">~/gsc</span><span class="brand__sep">/</span><span class="brand__name">jeong-manual</span><span class="brand__ver">v1.0.0</span>
+      </a>
+
+      <nav class="nav" id="main-nav" aria-label="주요 메뉴">
+        <a href="#top" aria-current="page">README.md</a>
+        <a href="#traits">traits.json</a>
+        <a href="#scenes">scenes/</a>
+        <a href="#talk">smalltalk.yml</a>
+        <a href="dialect.html">dialect.dict</a>
+        <a href="#thread">thread.log</a>
+      </nav>
+
+      <div class="header-actions">
+        <button type="button" class="lang-btn" data-lang="ko" aria-pressed="true">KO</button>
+        <button type="button" class="lang-btn" data-lang="ja" aria-pressed="false">JA</button>
+        <a class="btn-primary btn-primary--sm" href="#join">$ submit --anon</a>
+      </div>
+
+      <div class="m-actions">
+        <button type="button" class="m-lang" id="m-lang">KO/JA</button>
+        <button type="button" class="icon-btn" id="menu-toggle" aria-label="메뉴 열기" aria-controls="main-nav" aria-expanded="false">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===================== 히어로 ===================== -->
+    <section class="container hero">
+      <div class="hero__main">
+        <div class="man-head"><span>MAN(1)</span><span>매뉴얼 머리말</span><span>MAN(1)</span></div>
+
+        <p class="prompt"><span class="c-green">student@gsc</span><span class="c-muted">:~$</span> man page<span class="caret" aria-hidden="true"></span></p>
+
+        <div class="hero__name-row">
+          <div>
+            <p class="man-label">NAME</p>
+            <h1 class="hero__title">메인 타이틀<br>두 번째 줄</h1>
+            <p class="hero__ja">日本語サブタイトル</p>
+          </div>
+          <div class="hero__thumb"><div class="img-placeholder">img</div></div>
+        </div>
+
+        <div class="hero__synopsis">
+          <p class="man-label">SYNOPSIS</p>
+          <p class="synopsis"><span class="c-blue">command</span> [<span class="c-green">--옵션1</span>] [<span class="c-green">--옵션2</span>] [<span class="c-green">--옵션3</span> <span class="c-pink">"인자"</span>] [<span class="c-green">--옵션4</span>]</p>
+        </div>
+
+        <div class="hero__description">
+          <p class="man-label">DESCRIPTION</p>
+          <p class="hero__desc">사이트 소개 문단이 들어갑니다. 두세 줄 분량의 설명 문장을 작성하면 이 너비에 맞춰 자연스럽게 줄바꿈됩니다.</p>
+        </div>
+
+        <form class="grep" role="search">
+          <label class="grep__label" for="q">GREP <span>— 검색 안내 문구 / 検索ガイド</span></label>
+          <div class="grep__box">
+            <span class="grep__chev" aria-hidden="true">&gt;</span>
+            <input class="grep__input" id="q" type="search" placeholder="검색어 예시…">
+            <button class="grep__submit" type="submit" aria-label="검색"><span class="grep__submit-text">Enter </span>↵</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="hero__side">
+        <figure class="card preview">
+          <div class="window-bar">
+            <span class="dot dot--r" aria-hidden="true"></span><span class="dot dot--y" aria-hidden="true"></span><span class="dot dot--g" aria-hidden="true"></span>
+            <span class="window-bar__name">avatar.png — preview</span>
+            <span class="window-bar__meta">000×000</span>
+          </div>
+          <div class="preview__stage">
+            <!-- 이미지가 준비되면 아래 div 를 <img src="assets/avatar.png" alt="…"> 로 교체 -->
+            <div class="img-placeholder">avatar image</div>
+            <span class="badge badge--status">● online · 상태</span>
+            <span class="badge badge--music">♪ 배지 문구</span>
+          </div>
+          <figcaption class="code-block">
+            <div><span class="c-pink">const</span> <span class="c-blue">prof</span> = {</div>
+            <div class="indent"><span class="c-purple">key1</span>: [<span class="c-green">"값"</span>, <span class="c-green">"값"</span>],</div>
+            <div class="indent"><span class="c-purple">key2</span>: <span class="c-green">"값"</span>,</div>
+            <div class="indent"><span class="c-purple">key3</span>: <span class="c-green">"값"</span>, <span class="c-comment">// 주석</span></div>
+            <div class="indent"><span class="c-purple">key4</span>: <span class="c-green">"값"</span>, <span class="c-purple">key5</span>: <span class="c-green">"값"</span>,</div>
+            <div>};</div>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ===================== STATUS ===================== -->
+    <section class="container status-wrap" aria-labelledby="status-h">
+      <div class="card status">
+        <div class="status__info">
+          <h2 class="status__title" id="status-h">STATUS <span>(beta)</span></h2>
+          <span><span class="c-muted">mood:</span> <span class="c-green" style="font-weight:700">상태</span></span>
+          <span><span class="c-muted">reason:</span> 이유</span>
+          <span><span class="c-muted">votes:</span> 0표</span>
+        </div>
+        <div class="status__vote">
+          <span class="status__q">오늘 분위기는?</span>
+          <div class="mood-btns">
+            <button type="button" class="mood-btn mood-btn--sunny" aria-pressed="false"><span>맑음</span></button>
+            <button type="button" class="mood-btn" aria-pressed="false"><span>흐림</span></button>
+            <button type="button" class="mood-btn mood-btn--alert" aria-pressed="false"><span>주의보</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 01 traits ===================== -->
+    <section class="section" id="traits" aria-labelledby="traits-h">
+      <div class="container">
+        <div class="sec-head">
+          <span class="sec-file">// 01 traits.json</span>
+          <h2 class="sec-title" id="traits-h">섹션 제목</h2>
+          <span class="sec-ja">セクション</span>
+        </div>
+        <div class="traits">
+          <div class="card traits__chart">
+            <p class="traits__cmd">$ survey --summary --n=0  <span class="c-muted"># 응답자 구성</span></p>
+            <div id="traits-bars" style="display:flex;flex-direction:column;gap:18px"></div>
+          </div>
+          <div class="traits__summary">
+            <p class="traits__lead">요약 문장이 들어갑니다. <em>강조 수치</em>가 이렇게 표시됩니다.</p>
+            <p class="traits__sub">보조 설명 문단이 들어갑니다. 링크는 <a href="#thread">thread.log</a>처럼 표시됩니다.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 02 scenes ===================== -->
+    <section class="section section--alt" id="scenes" aria-labelledby="scenes-h">
+      <div class="container">
+        <div class="sec-head">
+          <span class="sec-file">// 02 scenes/</span>
+          <h2 class="sec-title" id="scenes-h">섹션 제목</h2>
+          <span class="sec-ja">セクション</span>
+        </div>
+        <div class="scene-tabs" id="scene-tabs" role="tablist"></div>
+        <div class="scenes" id="scenes-grid"></div>
+      </div>
+    </section>
+
+    <!-- ===================== 주의사항 ===================== -->
+    <section class="section section--warn" aria-labelledby="warn-h">
+      <div class="container">
+        <h2 class="warn-title" id="warn-h">주의사항 제목 <span>ご使用上の注意</span></h2>
+        <div class="card diagnostics" id="diagnostics"></div>
+      </div>
+    </section>
+
+    <!-- ===================== 03 smalltalk ===================== -->
+    <section class="section section--alt" id="talk" aria-labelledby="talk-h">
+      <div class="container">
+        <div class="sec-head">
+          <span class="sec-file">// 03 smalltalk.yml</span>
+          <h2 class="sec-title" id="talk-h">섹션 제목</h2>
+          <span class="sec-ja">セクション</span>
+        </div>
+        <div class="talk-grid" id="talk-grid"></div>
+      </div>
+    </section>
+
+    <!-- ===================== 04 dialect.dict ===================== -->
+    <section class="section" aria-labelledby="dict-h">
+      <div class="container dict-teaser">
+        <div class="dict-teaser__intro">
+          <span class="sec-file">// 04 dialect.dict</span>
+          <h2 class="sec-title" id="dict-h">섹션 제목</h2>
+          <p>섹션 소개 문장이 들어갑니다. 日本語の説明。</p>
+          <a class="btn-outline" href="dialect.html">open dialect.dict →</a>
+        </div>
+        <div class="card dict-teaser__list" id="dict-preview"></div>
+      </div>
+    </section>
+
+    <!-- ===================== 05 thread.log ===================== -->
+    <section class="section section--alt" id="thread" aria-labelledby="thread-h">
+      <div class="container">
+        <div class="sec-head">
+          <span class="sec-file">// 05 thread.log — tail -f</span>
+          <h2 class="sec-title" id="thread-h">섹션 제목</h2>
+          <span class="sec-ja">セクション</span>
+        </div>
+        <div class="bbs">
+          <div class="bbs__head">
+            <h3 class="bbs__title">【게시판】스레드 제목 Part.1</h3>
+            <span class="bbs__meta">1-1000 · 自動スクロール中（ホバーで停止）</span>
+          </div>
+          <div class="bbs__window" tabindex="0" aria-label="게시글 목록 (자동 스크롤, 마우스를 올리면 정지)">
+            <div class="bbs__roll" id="bbs-roll"></div>
+          </div>
+          <form class="bbs__form" id="bbs-form">
+            <label for="bbs">名前：<span class="post__name">익명의 글시융러</span></label>
+            <input id="bbs" type="text" placeholder="한마디 남기기">
+            <button type="submit">書き込む</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 06 CONTRIBUTING ===================== -->
+    <section class="section" id="join" aria-labelledby="join-h">
+      <div class="container join">
+        <div class="join__main">
+          <span class="sec-file">// 06 CONTRIBUTING.md</span>
+          <h2 class="sec-title" id="join-h">참여 유도 문구 <br>두 번째 줄</h2>
+          <p>日本語の案内文。<br>지원 언어 목록</p>
+          <a class="btn-primary" href="#">$ git commit -m "내 경험"</a>
+        </div>
+        <div class="card join__rules">
+          <div class="c-comment"># 원칙 제목</div>
+          <div><span class="c-green">[x]</span> 원칙 항목</div>
+          <div><span class="c-green">[x]</span> 원칙 항목</div>
+          <div><span class="c-green">[x]</span> 원칙 항목</div>
+          <div><span class="c-green">[x]</span> 원칙 항목</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== 푸터 ===================== -->
+  <footer class="site-footer">
+    <div class="container">
+      <div><strong>팀 이름</strong> — 팀원 (역할) · 팀원 (역할) · 팀원 (역할) · 팀원 (역할)</div>
+      <div class="mono">푸터 안내 문구 · 2026</div>
+    </div>
+  </footer>
+</div>
+
+<!-- ===================== 하단 탭바 (모바일) ===================== -->
+<nav class="bottom-nav" aria-label="하단 메뉴">
+  <a href="#top" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg>README</a>
+  <a href="#scenes"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"/></svg>scenes/</a>
+  <a href="dialect.html"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>dict</a>
+  <a href="#thread"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h13"/></svg>thread</a>
+</nav>
+
+<script src="js/data.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
