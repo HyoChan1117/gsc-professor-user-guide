@@ -4,7 +4,7 @@
    - chunks.source_type 은 섹션 종류(talk · dict …) 그대로 → 챗봇 출처 링크가 해당 섹션 페이지로 감
    - chunks.source_ref = 'contrib:<제보 id>' 로 구분 (seed 로 만든 자료와 섞이지 않게)
    ========================================================================== */
-import { embed, EMBED_MODEL } from './openai.js';
+import { SEARCH_MODEL } from './search.js';
 import { PUBLIC_KINDS, NEW_SCENE } from './contrib.js';
 
 // 선택지 key → 문장에 쓸 말 (frontend/src/data/contrib.js 의 라벨과 같은 뜻)
@@ -15,14 +15,6 @@ const LABEL = {
 const KIND_NAME = {
   talk: { ko: '스몰토크', ja: '雑談ネタ' }, dict: { ko: '말버릇', ja: '口癖' }, traits: { ko: '성향', ja: '性格' },
   scene: { ko: '상황별 가이드', ja: '場面別ガイド' }, warning: { ko: '주의사항', ja: '注意事項' },
-};
-// 검색이 잘 되도록 앞에 붙이는 "이런 질문에 답하는 자료" 힌트 (seed.js 의 HINT 와 같은 역할)
-const HINT = {
-  talk: { ko: '스몰토크, 대화 주제, 교수님과 무슨 이야기를 하면 좋은지', ja: '雑談・話題、教授と何を話せばいいか' },
-  dict: { ko: '교수님 말버릇·사투리 표현의 뜻', ja: '教授の口癖・方言の意味' },
-  traits: { ko: '교수님 성격, 성향, 어떤 분인지', ja: '教授の性格・タイプ、どんな人か' },
-  scene: { ko: '이런 상황에서 어떻게 준비하고 대처하면 되는지', ja: 'この場面でどう準備・対処すればいいか' },
-  warning: { ko: '조심할 점, 하면 안 되는 것, 주의사항', ja: '気をつけること、してはいけないこと' },
 };
 
 const lab = (field, key, lang) => LABEL[field]?.[key]?.[lang] ?? key;
@@ -79,16 +71,11 @@ export function sceneTitleFor(db, row) {
   return s ? { ko: s.title_ko, ja: s.title_ja || s.title_ko } : undefined;
 }
 
-/** 임베딩할 문장 — 교수님 이름 · 힌트 · 제목 · 내용 */
-export const contribEmbedText = (c, name, lang) => `${name[lang]} · ${HINT[c.type][lang]}\n${c.title[lang]}\n${c.content[lang]}`;
-
 export function createContribIndex(db, rag) {
   const rowStmt = db.prepare('SELECT id, prof_id, kind, data, status FROM contributions WHERE id = ?');
-  const profStmt = db.prepare('SELECT name_ko, name_ja FROM professors WHERE id = ?');
   const delStmt = db.prepare('DELETE FROM chunks WHERE source_ref = ?');
   const insStmt = db.prepare(`INSERT INTO chunks (prof_id, source_type, source_ref, title_ko, title_ja, content_ko, content_ja, embedding, embedding_ja, embed_model)
     VALUES (?,?,?,?,?,?,?,?,?,?)`);
-  const blob = (v) => new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
 
   /** 제보 하나의 검색 자료를 현재 상태에 맞춤 — 게시 중이면 (다시) 만들고, 아니면 지움. 성공 여부 반환 */
   async function sync(id) {
@@ -99,23 +86,21 @@ export function createContribIndex(db, rag) {
       if (info.changes && row) rag.invalidate(row.prof_id);
       return true;
     }
-    const p = profStmt.get(row.prof_id);
-    const name = { ko: p?.name_ko ?? row.prof_id, ja: p?.name_ja ?? p?.name_ko ?? row.prof_id };
     const c = contribChunk(row, { sceneTitle: sceneTitleFor(db, row) });
     let inTx = false;
     try {
-      const [vKo, vJa] = await embed([contribEmbedText(c, name, 'ko'), contribEmbedText(c, name, 'ja')]);
       db.exec('BEGIN');
       inTx = true;
       delStmt.run(ref);
-      insStmt.run(c.prof_id, c.type, c.ref, c.title.ko, c.title.ja, c.content.ko, c.content.ja, blob(vKo), blob(vJa), EMBED_MODEL);
+      // 키워드 검색 — 벡터 없이 글만 저장 (색인은 rag.js 가 다시 만듦)
+      insStmt.run(c.prof_id, c.type, c.ref, c.title.ko, c.title.ja, c.content.ko, c.content.ja, null, null, SEARCH_MODEL);
       db.exec('COMMIT');
       inTx = false;
       rag.invalidate(row.prof_id);
       return true;
     } catch (err) {
       if (inTx) db.exec('ROLLBACK');
-      // 임베딩 실패(키 없음 등) — 수정 전 내용(개인정보를 지웠을 수도 있음)이 남지 않도록 옛 자료는 지움.
+      // 저장 실패 — 수정 전 내용(개인정보를 지웠을 수도 있음)이 남지 않도록 옛 자료는 지움.
       // 게시는 유지되고, 다음 서버 시작 때 다시 시도
       if (delStmt.run(ref).changes) rag.invalidate(row.prof_id);
       console.warn(`[contrib-index] #${id} 검색 자료 생성 실패: ${err.message}`);

@@ -2,14 +2,14 @@
    DB 채우기 + RAG 청크 만들기
    1) data/profs.json (프론트에서 npm run export-data 로 생성) 읽기
    2) 테이블을 비우고 다시 채우기
-   3) 검색 단위(chunks) 만들기 → OpenAI 임베딩 → 저장
+   3) 검색 단위(chunks) 만들기 → 저장 (키워드 검색이라 API 키 필요 없음)
    실행: npm run seed
    ========================================================================== */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, SCHEMA, DB_PATH, migrate } from './db.js';
-import { embed, EMBED_MODEL } from './openai.js';
+import { SEARCH_MODEL } from './search.js';
 import { contribChunk, sceneTitleFor } from './contribIndex.js';
 import { upgradeAll } from './contrib.js';
 
@@ -143,28 +143,11 @@ try {
   if (published.length) console.log(`게시된 선배 제보 ${published.length}개 포함`);
 } catch { /* contributions 테이블이 아직 없음 */ }
 
-/* ---- 임베딩: 언어별로 따로 (섞으면 점수가 흐려짐) ----
-   섹션마다 "이런 질문에 답하는 자료"라는 힌트를 앞에 붙여 검색이 잘 되게 함 */
-const HINT = {
-  profile: { ko: '교수님 기본 정보, 어떤 분인지', ja: '教授の基本情報、どんな人か' },
-  traits: { ko: '교수님 성격, 성향, 어떤 스타일인지 설문 결과', ja: '教授の性格・タイプ、アンケート結果' },
-  scene: { ko: '이런 상황에서 어떻게 준비하고 대처하면 되는지', ja: 'この場面でどう準備・対処すればいいか' },
-  warning: { ko: '조심할 점, 하면 안 되는 것, 주의사항', ja: '気をつけること、してはいけないこと' },
-  talk: { ko: '스몰토크, 대화 주제, 교수님과 무슨 이야기를 하면 좋은지, 취미와 좋아하는 것', ja: '雑談・話題、教授と何を話せばいいか、趣味や好きなもの' },
-  dict: { ko: '교수님 말버릇·사투리 표현의 뜻, 무슨 말인지', ja: '教授の口癖・方言の意味、どういう意味か' },
-};
-const nameOf = Object.fromEntries(profs.map((p) => [p.id, L(p.name)]));
-const textFor = (c, lang) => `${nameOf[c.prof_id][lang]} · ${HINT[c.type][lang]}\n${c.title[lang]}\n${c.content[lang]}`;
-
-console.log(`청크 ${chunks.length}개 × 2개 언어 임베딩 중... (${EMBED_MODEL})`);
-const vectors = await embed([...chunks.map((c) => textFor(c, 'ko')), ...chunks.map((c) => textFor(c, 'ja'))]);
-const blob = (v) => new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
-
+/* ---- 검색 자료 저장 (키워드 검색 색인은 서버가 시작할 때 메모리에 만듦 — rag.js) ---- */
 db.exec('BEGIN');
-chunks.forEach((c, i) => {
-  ins.chunk.run(c.prof_id, c.type, c.ref, c.title.ko, c.title.ja, c.content.ko, c.content.ja,
-    blob(vectors[i]), blob(vectors[chunks.length + i]), EMBED_MODEL);
-});
+for (const c of chunks) {
+  ins.chunk.run(c.prof_id, c.type, c.ref, c.title.ko, c.title.ja, c.content.ko, c.content.ja, null, null, SEARCH_MODEL);
+}
 db.exec('COMMIT');
 
 const count = (t) => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n;

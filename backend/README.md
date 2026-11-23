@@ -3,19 +3,19 @@
 홈 히어로의 GREP 입력창에 질문하면, 선배들의 설문 자료(DB)에서 관련 내용을 찾아 답하는 API 서버입니다.
 
 - **DB**: SQLite (`data/gsc.db`) — Node 내장 `node:sqlite` 사용, 별도 설치 없음 (Node 22.13 이상)
-- **검색**: OpenAI 임베딩(`text-embedding-3-small`) + 코사인 유사도
-- **답변**: Claude (`CLAUDE_MODEL`, 기본 `claude-opus-5-5`, 공식 SDK `@anthropic-ai/sdk`) — 키가 없거나 호출이 실패하면 찾은 자료를 그대로 보여 주는 **검색 모드**로 동작
+- **검색**: 키워드 검색 (`src/search.js` — 글자 2개 단위 + BM25 + 비슷한 말 사전). **API 키 필요 없음**
+- **답변**: 기본은 찾은 자료를 그대로 보여 주는 **검색 모드**. (선택) `ANTHROPIC_API_KEY`를 넣으면 Claude가 자료를 바탕으로 답변 · 퀴즈 출제 · 제보 정리
 
 ## 처음 실행
 
 ```bash
-# 1) 환경 변수
-cp .env.example .env        # OPENAI_API_KEY(검색) + ANTHROPIC_API_KEY(답변) 채우기
+# 1) (선택) 환경 변수 — 없어도 동작. 관리자 페이지를 쓰려면 ADMIN_PASSWORD 필요
+cp .env.example .env
 
 # 2) 프론트 데이터 → JSON (frontend 폴더에서)
 cd ../frontend && npm run export-data && cd ../backend
 
-# 3) DB 만들기 + 임베딩
+# 3) DB 만들기
 npm install
 npm run seed
 
@@ -31,10 +31,19 @@ npm run dev
 
 ```bash
 cd frontend && npm run export-data
-cd ../backend && npm run seed     # 테이블 비우고 다시 채움 + 임베딩 다시 계산
+cd ../backend && npm run seed     # 테이블 비우고 다시 채움
 ```
 
-서버가 켜져 있으면 재시작하세요 (검색용 벡터를 메모리에 캐시함).
+서버가 켜져 있으면 재시작하세요 (검색 색인을 메모리에 캐시함).
+
+## 검색 정확도 확인
+
+```bash
+npm run eval   # 질문 세트로 1위 정답률 · 3위 안 정답률 · 무관한 질문 거르기
+```
+
+질문 세트는 `scripts/eval-search.mjs`. 검색이 못 찾는 질문이 있으면 `src/search.js`의 `SYNONYMS`(비슷한 말)에 단어를 추가하고 다시 확인하세요.
+CASES(조정용)만 보고 고치면 점수가 부풀려지니, HOLDOUT(검증용) 점수도 같이 보세요.
 
 ## API
 
@@ -72,8 +81,8 @@ cd ../backend && npm run seed     # 테이블 비우고 다시 채움 + 임베�
 
 ```
 src/db.js       DB 연결 + 스키마
-src/seed.js     data/profs.json → 테이블 + 청크 + 임베딩
-src/openai.js   OpenAI 임베딩 호출 (검색용)
+src/seed.js     data/profs.json → 테이블 + 검색 청크
+src/search.js   키워드 검색 (글자 2개 단위 + BM25 + 비슷한 말)
 src/claude.js   Claude 답변 생성 (오류 → ChatUnavailableError → 검색 모드)
 src/rag.js      검색 + 프롬프트 + 답변 (검색 모드 대체 포함)
 src/contrib.js  섹션별 제보 (종류별 항목 정의 KINDS + 검사 + 저장)
@@ -89,8 +98,8 @@ src/server.js   Express API
 > 섹션별 제보는 **관리자가 게시해야만** 사이트에 보입니다. 제보 → **AI 정리** → 검수 대기 → (필요하면 수정) → 게시.
 > AI 정리(`src/organize.js`, Claude): 제보 직후 백그라운드에서 오타 · 띄어쓰기 수정, 개인 식별 정보 제거 · 일반화, 문장 정리(내용은 그대로).
 > 원문은 `original` 에 보관 — 관리자 화면에서 원문 보기 · 원문으로 되돌리기 · AI로 다시 정리 가능. 비방 · 무관한 글은 "AI: 반려 권장" 표시.
-> 게시하는 순간 **챗봇 검색 자료에도 추가**되고(OpenAI 임베딩), 게시 취소 · 수정 · 삭제 시 함께 지워지거나 다시 만들어집니다.
-> 임베딩에 실패하면(키 없음 등) 게시는 그대로 두고, 다음 서버 시작 때 다시 시도합니다.
+> 게시하는 순간 **챗봇 검색 자료에도 추가**되고, 게시 취소 · 수정 · 삭제 시 함께 지워지거나 다시 만들어집니다.
+> AI 정리는 `ANTHROPIC_API_KEY`가 있을 때만 — 없으면 원문 그대로 검수 대기로 들어옵니다.
 
 1. `.env`에 `ADMIN_PASSWORD=길고-추측하기-어려운-값` 추가 → 서버 재시작 (비어 있으면 관리자 기능 꺼짐)
 2. 브라우저에서 `http://localhost:5173/admin` → 비밀번호로 로그인 (메뉴에는 노출되지 않음)

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useProf } from '../../context/ProfContext.jsx';
 import { useLang } from '../../context/LangContext.jsx';
+import { SURVEY_PATH } from '../../data/siteData.js';
+import { setAsked } from '../../data/asked.js';
 
 /* 출처 종류 → 해당 내용이 있는 페이지 */
 const SOURCE_LINK = {
@@ -84,7 +86,10 @@ export default function GrepChat() {
           : t('답변을 만들지 못했어요. 잠시 후 다시 시도해 주세요.', '回答を作成できませんでした。少し待ってから試してください。');
         throw new Error(msg);
       }
-      setLog((l) => [...l, { role: 'assistant', content: data.answer, sources: data.sources, notice: data.notice }]);
+      setLog((l) => [...l, {
+        role: 'assistant', content: data.answer, sources: data.sources, notice: data.notice, noticeType: data.noticeType,
+        mode: data.mode, question: message,
+      }]);
     } catch (err) {
       const msg = err instanceof TypeError
         ? t('서버에 연결할 수 없어요. 백엔드가 켜져 있는지 확인해 주세요.', 'サーバーに接続できません。バックエンドが起動しているか確認してください。')
@@ -136,7 +141,7 @@ export default function GrepChat() {
               <div className="chat-msg chat-msg--user" key={i}><span className="c-green">&gt;</span> {m.content}</div>
             ) : (
               <div className={'chat-msg chat-msg--bot' + (m.error ? ' is-error' : '')} key={i}>
-                {m.notice && <div className="chat-notice">⚠ {m.notice}</div>}
+                {m.notice && <div className="chat-notice">{m.noticeType === 'info' ? '// ' : '⚠ '}{m.notice}</div>}
                 {m.error ? <div className="chat-text"><p>{m.content}</p></div> : <Answer text={m.content} />}
                 {m.sources?.length > 0 && (
                   <div className="chat-sources">
@@ -146,6 +151,16 @@ export default function GrepChat() {
                       </Link>
                     ))}
                   </div>
+                )}
+                {m.mode === 'empty' && (
+                  <Link className="chat-contrib" to={SURVEY_PATH} onClick={() => setAsked(m.question)}>
+                    $ git commit -m "{t('제가 알아요', '知っています')}" <span aria-hidden="true">→</span>
+                  </Link>
+                )}
+                {(m.mode === 'retrieval' || m.mode === 'generate') && (
+                  <Link className="chat-contrib-more" to={SURVEY_PATH} onClick={() => setAsked(m.question)}>
+                    {t('// 더 아는 게 있다면 제보하기 →', '// もっと知っていたら投稿する →')}
+                  </Link>
                 )}
               </div>
             )

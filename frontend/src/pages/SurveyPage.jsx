@@ -9,6 +9,7 @@ import { GRADES, KINDS, NEW_SCENE, kindOf, resolveOptions } from '../data/contri
 import { SURVEY_PATH, TAG_LABEL } from '../data/siteData.js';
 import { useProf } from '../context/ProfContext.jsx';
 import { useLang } from '../context/LangContext.jsx';
+import { getAsked, clearAsked } from '../data/asked.js';
 
 /* ==========================================================================
    /survey        제보 종류 고르기 (홈 섹션 순서)
@@ -242,6 +243,7 @@ function KindForm({ kind }) {
         return;
       }
       setState('done');
+      clearAsked(); // 챗봇에서 넘어온 질문에 대한 제보 완료
       window.scrollTo(0, 0);
     } catch {
       setError({ code: 'network' });
@@ -311,6 +313,25 @@ function KindForm({ kind }) {
   );
 }
 
+/** 챗봇이 답하지 못하고 넘겨준 질문 — 어떤 걸 제보하면 되는지 보여 줌 */
+function AskedBanner() {
+  const { t } = useLang();
+  const [asked, setAskedState] = useState(getAsked);
+  if (!asked) return null;
+  return (
+    <div className="card asked-banner" role="note">
+      <span className="c-comment mono">{t('# 챗봇이 답하지 못한 질문', '# チャットボットが答えられなかった質問')}</span>
+      <p className="asked-banner__q"><span className="c-green">&gt;</span> {asked}</p>
+      <p className="asked-banner__desc">
+        {t('이 내용을 알고 있다면 아래에서 맞는 섹션을 골라 알려 주세요. 다음에 같은 걸 묻는 후배에게 답이 돼요.',
+          'この内容を知っていたら、下から合うセクションを選んで教えてください。次に同じことを聞く後輩への答えになります。')}
+      </p>
+      <button type="button" className="asked-banner__close" aria-label={t('닫기', '閉じる')}
+        onClick={() => { clearAsked(); setAskedState(''); }}>×</button>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- 페이지 */
 export default function SurveyPage() {
   const { kind: kindKey } = useParams();
@@ -333,6 +354,7 @@ export default function SurveyPage() {
         )}
       />
       <section className="container page-body">
+        <AskedBanner />
         {kind ? (
           <>
             <KindTabs current={kind.key} />
