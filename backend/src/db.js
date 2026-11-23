@@ -9,7 +9,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-export const DB_PATH = resolve(here, '../data/gsc.db');
+// 배포 시 영구 디스크를 쓰려면 DB_PATH 환경 변수로 위치 지정 (예: /var/data/gsc.db)
+export const DB_PATH = process.env.DB_PATH ? resolve(process.env.DB_PATH) : resolve(here, '../data/gsc.db');
 
 export function openDb() {
   mkdirSync(dirname(DB_PATH), { recursive: true });

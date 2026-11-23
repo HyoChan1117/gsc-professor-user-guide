@@ -11,6 +11,9 @@
    실행: npm run dev  (프론트 vite가 /api 를 이 서버로 프록시)
    ========================================================================== */
 import express from 'express';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openDb, SCHEMA, migrate } from './db.js';
 import { createRag } from './rag.js';
 import { SEARCH_MODEL } from './search.js';
@@ -37,6 +40,8 @@ const quiz = createQuiz(db);
 // 예전 형식(섹션과 다른 항목)으로 저장된 제보 → 섹션 형식. 게시 중인 것은 챗봇 자료도 다시 만듦
 const upgraded = upgradeAll(db);
 const app = express();
+// 배포(Render 등)에서는 앞단 프록시가 하나 있음 → 실제 접속자 IP로 요청 제한 (안 하면 모두가 같은 IP로 묶임)
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
 app.use(express.json({ limit: '32kb' }));
 
 /* ---- 아주 단순한 요청 제한: IP당 1분에 max번 ---- */
@@ -115,6 +120,14 @@ app.post('/api/quiz', quizLimit, async (req, res) => {
 
 mountContrib(app, db, makeRateLimit, organizer);
 mountAdmin(app, db, makeRateLimit, contribIndex, organizer);
+
+/* ---- 배포: 빌드된 프론트(frontend/dist)도 이 서버가 제공 — /api 외 경로는 index.html (SPA) ---- */
+const DIST = resolve(dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
+app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
+if (existsSync(DIST)) {
+  app.use(express.static(DIST, { index: false, maxAge: '1h' }));
+  app.get('*', (req, res) => res.sendFile(resolve(DIST, 'index.html')));
+}
 
 app.listen(PORT, () => {
   console.log(`✓ API 서버: http://localhost:${PORT}  (chat: ${CHAT_MODEL}, search: ${SEARCH_MODEL})`);
