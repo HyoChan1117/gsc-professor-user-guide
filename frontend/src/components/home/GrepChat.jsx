@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useProf } from '../../context/ProfContext.jsx';
 import { useLang } from '../../context/LangContext.jsx';
+import { SURVEY_PATH } from '../../data/siteData.js';
+import { setAsked } from '../../data/asked.js';
 
 /* 출처 종류 → 해당 내용이 있는 페이지 */
 const SOURCE_LINK = {
@@ -9,10 +11,12 @@ const SOURCE_LINK = {
   talk: '/talk', dict: '/dialect', posts: '/#thread',
 };
 
+// 예시 질문 — 세 번째는 교수님별 사전 미리보기 첫 항목으로
 const SUGGEST = {
-  ko: ['면담 가기 전에 뭘 준비해야 해?', '교수님이랑 무슨 얘기하면 좋아?', '“시마이하자”가 무슨 뜻이야?'],
-  ja: ['面談の前に何を準備すればいい？', '先生と何を話せばいい？', '「시마이하자」ってどういう意味？'],
+  ko: ['면담 가기 전에 뭘 준비해야 해?', '교수님이랑 무슨 얘기하면 좋아?'],
+  ja: ['面談の前に何を準備すればいい？', '先生と何を話せばいい？'],
 };
+const termQuestion = (term, lang) => (lang === 'ja' ? `「${term}」ってどういう意味？` : `“${term}” 무슨 뜻이야?`);
 
 /* 답변 텍스트 → 화면 (마크다운 일부만: **굵게**, "- " 목록, [1] 출처 번호)
    HTML을 직접 넣지 않고 React 요소로 만들기 때문에 안전함 */
@@ -84,7 +88,10 @@ export default function GrepChat() {
           : t('답변을 만들지 못했어요. 잠시 후 다시 시도해 주세요.', '回答を作成できませんでした。少し待ってから試してください。');
         throw new Error(msg);
       }
-      setLog((l) => [...l, { role: 'assistant', content: data.answer, sources: data.sources, notice: data.notice }]);
+      setLog((l) => [...l, {
+        role: 'assistant', content: data.answer, sources: data.sources, notice: data.notice, noticeType: data.noticeType,
+        mode: data.mode, question: message,
+      }]);
     } catch (err) {
       const msg = err instanceof TypeError
         ? t('서버에 연결할 수 없어요. 백엔드가 켜져 있는지 확인해 주세요.', 'サーバーに接続できません。バックエンドが起動しているか確認してください。')
@@ -121,7 +128,7 @@ export default function GrepChat() {
 
       {log.length === 0 ? (
         <div className="chat-suggest" aria-label={t('예시 질문', '質問の例')}>
-          {SUGGEST[lang].map((s) => (
+          {[...SUGGEST[lang], ...(prof.dictPreview?.[0] ? [termQuestion(prof.dictPreview[0].term, lang)] : [])].map((s) => (
             <button key={s} type="button" onClick={() => ask(s)}>{s}</button>
           ))}
         </div>
@@ -136,7 +143,7 @@ export default function GrepChat() {
               <div className="chat-msg chat-msg--user" key={i}><span className="c-green">&gt;</span> {m.content}</div>
             ) : (
               <div className={'chat-msg chat-msg--bot' + (m.error ? ' is-error' : '')} key={i}>
-                {m.notice && <div className="chat-notice">⚠ {m.notice}</div>}
+                {m.notice && <div className="chat-notice">{m.noticeType === 'info' ? '// ' : '⚠ '}{m.notice}</div>}
                 {m.error ? <div className="chat-text"><p>{m.content}</p></div> : <Answer text={m.content} />}
                 {m.sources?.length > 0 && (
                   <div className="chat-sources">
@@ -146,6 +153,16 @@ export default function GrepChat() {
                       </Link>
                     ))}
                   </div>
+                )}
+                {m.mode === 'empty' && (
+                  <Link className="chat-contrib" to={SURVEY_PATH} onClick={() => setAsked(m.question)}>
+                    $ git commit -m "{t('제가 알아요', '知っています')}" <span aria-hidden="true">→</span>
+                  </Link>
+                )}
+                {(m.mode === 'retrieval' || m.mode === 'generate') && (
+                  <Link className="chat-contrib-more" to={SURVEY_PATH} onClick={() => setAsked(m.question)}>
+                    {t('// 더 아는 게 있다면 제보하기 →', '// もっと知っていたら投稿する →')}
+                  </Link>
                 )}
               </div>
             )

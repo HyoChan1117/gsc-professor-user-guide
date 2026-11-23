@@ -643,6 +643,96 @@ function ChatLogs({ api, profs }) {
   );
 }
 
+/* ---------------------------------------------------------------- 교수님께 한마디 */
+const THREAD_STATUS = {
+  visible: { ko: '공개', ja: '公開' },
+  hidden: { ko: '숨김', ja: '非表示' },
+};
+
+function ThreadPosts({ api, profs }) {
+  const { t } = useLang();
+  const [filter, setFilter] = useState({ prof: '', status: '', q: '' });
+  const [q, setQ] = useState('');
+  const [data, setData] = useState({ total: 0, rows: [] });
+  const [page, setPage] = useState(0);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    const p = new URLSearchParams({ limit: PAGE, offset: page * PAGE });
+    if (filter.prof) p.set('prof', filter.prof);
+    if (filter.status) p.set('status', filter.status);
+    if (filter.q) p.set('q', filter.q);
+    setLoading(true);
+    api(`/thread?${p}`)
+      .then((d) => { setData(d); setError(''); })
+      .catch((e) => setError(e.code))
+      .finally(() => setLoading(false));
+  }, [api, filter, page]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function setStatus(id, status) {
+    try { await api(`/thread/${id}`, { method: 'PATCH', body: { status } }); load(); } catch (e) { setError(e.code); }
+  }
+  async function remove(id) {
+    if (!window.confirm(t(`#${id} 글을 삭제할까요? 되돌릴 수 없어요.`, `#${id} の書き込みを削除しますか？元に戻せません。`))) return;
+    try { await api(`/thread/${id}`, { method: 'DELETE' }); load(); } catch (e) { setError(e.code); }
+  }
+
+  const change = (next) => { setPage(0); setFilter(next); };
+  const pages = Math.max(1, Math.ceil(data.total / PAGE));
+
+  return (
+    <div className="admin-list">
+      <p className="c-comment mono">{t('# 한마디는 쓰는 즉시 공개돼요. 문제 있는 글은 숨기거나 삭제하세요.', '# ひとことは書き込むとすぐ公開されます。問題のある書き込みは非表示または削除してください。')}</p>
+      <form className="admin-toolbar" onSubmit={(e) => { e.preventDefault(); change({ ...filter, q: q.trim() }); }}>
+        <select className="survey-input" value={filter.prof} onChange={(e) => change({ ...filter, prof: e.target.value })} aria-label={t('교수님', '教授')}>
+          <option value="">{t('모든 교수님', 'すべての教授')}</option>
+          {profs.map((p) => <option key={p.id} value={p.id}>{t(p.name_ko, p.name_ja)}</option>)}
+        </select>
+        <select className="survey-input" value={filter.status} onChange={(e) => change({ ...filter, status: e.target.value })} aria-label={t('상태', '状態')}>
+          <option value="">{t('모든 상태', 'すべての状態')}</option>
+          {Object.entries(THREAD_STATUS).map(([k, v]) => <option key={k} value={k}>{t(v)}</option>)}
+        </select>
+        <input className="survey-input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('내용 검색', '内容を検索')} />
+        <button type="submit" className="btn-outline">{t('검색', '検索')}</button>
+      </form>
+
+      <p className="admin-count mono">{data.total} {t('건', '件')}{loading && ' …'}</p>
+      {error && <p className="survey-error" role="alert">✗ {t(ERRORS[error] || ERRORS.default)}</p>}
+
+      {data.rows.map((r) => (
+        <article className="card admin-item" key={r.id}>
+          <header className="admin-item__head">
+            <span className="mono">#{r.id}</span>
+            <span className={`admin-badge is-${r.status === 'visible' ? 'published' : 'rejected'}`}>{t(THREAD_STATUS[r.status] || { ko: r.status, ja: r.status })}</span>
+            <span>{r.prof_id}</span>
+            <span className="c-muted mono">ID:{r.author || '-'}</span>
+            <span className="c-comment mono admin-item__date">{fmtDate(r.created_at)}</span>
+          </header>
+          <p className="admin-item__episode">{r.anchor && <span className="c-green mono">{r.anchor}</span>}{r.body}</p>
+          <footer className="admin-item__actions">
+            {r.status === 'visible'
+              ? <button type="button" className="btn-outline admin-btn-sm" onClick={() => setStatus(r.id, 'hidden')}>{t('숨기기', '非表示にする')}</button>
+              : <button type="button" className="btn-outline admin-btn-sm" onClick={() => setStatus(r.id, 'visible')}>{t('다시 공개', '再公開')}</button>}
+            <button type="button" className="admin-danger" onClick={() => remove(r.id)}>{t('삭제', '削除')}</button>
+          </footer>
+        </article>
+      ))}
+      {!loading && data.rows.length === 0 && <p className="c-muted">{t('글이 없어요.', '書き込みがありません。')}</p>}
+
+      {pages > 1 && (
+        <nav className="admin-pager" aria-label={t('페이지', 'ページ')}>
+          <button type="button" className="btn-outline" disabled={page === 0} onClick={() => setPage(page - 1)}>←</button>
+          <span className="mono">{page + 1} / {pages}</span>
+          <button type="button" className="btn-outline" disabled={page + 1 >= pages} onClick={() => setPage(page + 1)}>→</button>
+        </nav>
+      )}
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- 페이지 */
 export default function AdminPage() {
   const { t } = useLang();
@@ -679,6 +769,7 @@ export default function AdminPage() {
     { key: 'overview', label: { ko: '개요', ja: '概要' } },
     { key: 'contrib', label: { ko: '섹션별 제보', ja: 'セクション別の投稿' } },
     { key: 'chat', label: { ko: '챗봇 기록', ja: 'チャットボット記録' } },
+    { key: 'thread', label: { ko: '한마디', ja: 'ひとこと' } },
   ];
 
   return (
@@ -712,6 +803,7 @@ export default function AdminPage() {
             {tab === 'overview' && <Overview api={api} onOpen={openContrib} />}
             {tab === 'contrib' && <ContribList api={api} profs={profs} filter={contribFilter} setFilter={setContribFilter} />}
             {tab === 'chat' && <ChatLogs api={api} profs={profs} />}
+            {tab === 'thread' && <ThreadPosts api={api} profs={profs} />}
           </div>
         )}
       </main>

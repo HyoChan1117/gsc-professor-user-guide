@@ -1,24 +1,34 @@
 /* ==========================================================================
-   RAG: 질문 임베딩 → 교수님별 청크에서 코사인 유사도 상위 k개 → 답변 생성
-   - 데이터가 작아서(수십~수백 개) 벡터 DB 없이 메모리에서 계산합니다.
-   - 답변 모델을 쓸 수 없으면(권한 없음 등) 찾은 자료를 그대로 보여 주는 "검색 모드"로 동작합니다.
+   RAG: 질문 → 교수님별 청크에서 키워드 검색(search.js, BM25) 상위 k개 → 답변 생성
+   - API 키 없이 동작. 데이터가 작아서(수십~수백 개) 색인을 메모리에 만들어 둡니다.
+   - 답변 모델(Claude)을 쓸 수 없으면(키 없음 등) 찾은 자료를 그대로 보여 주는 "검색 모드"로 동작합니다.
    ========================================================================== */
-import { embed } from './openai.js';
+import { buildIndex } from './search.js';
 import { chat, ChatUnavailableError, CHAT_MODEL } from './claude.js';
 
 // 검색 모드로 바뀐 이유별 안내 문구
 const NOTICE = {
-  no_api_key: { ko: 'AI 답변용 Claude API 키가 아직 설정되지 않아, 관련 자료를 그대로 보여 드려요.', ja: 'AI回答用のClaude APIキーが未設定のため、関連する資料をそのまま表示しています。' },
+  // 기본 동작(키 없이 키워드 검색만) — 오류처럼 보이지 않게
+  no_api_key: { ko: '선배들의 설문 · 제보 자료에서 찾은 내용이에요.', ja: '先輩たちのアンケート・投稿から見つけた内容です。' },
   auth: { ko: 'AI 답변용 Claude API 키가 올바르지 않아, 관련 자료를 그대로 보여 드려요.', ja: 'Claude APIキーが正しくないため、関連する資料をそのまま表示しています。' },
   rate_limited: { ko: '지금 질문이 몰려 AI 답변 대신 관련 자료를 보여 드려요. 잠시 후 다시 물어봐 주세요.', ja: '混み合っているため、関連する資料を表示しています。少し後でもう一度どうぞ。' },
   default: { ko: 'AI 답변을 만들지 못해, 관련 자료를 보여 드려요.', ja: 'AI回答を作成できなかったため、関連する資料を表示しています。' },
 };
 
 const TOP_K = 5;
-const WEIGHT = {};
-// 이보다 낮으면 "관련 자료 없음" (text-embedding-3-small 기준: 관련 질문 ≈ 0.34~0.55, 무관한 질문 ≈ 0.16~0.40)
-// 겹치는 구간은 답변 모델이 프롬프트 규칙에 따라 "자료 없음"으로 처리
-const MIN_SCORE = 0.3;
+// 점수(0~1)가 이보다 낮으면 "관련 자료 없음" — 질문의 핵심 단어가 거의 안 겹친 경우 (eval 로 조정)
+const MIN_SCORE = 0.2;
+// 1등 점수 × 이 비율보다 낮은 자료는 버림
+const REL_SCORE = 0.4;
+// 섹션마다 "이런 질문에 답하는 자료"라는 힌트를 색인에 함께 넣어 검색이 잘 되게 함
+const HINT = {
+  profile: { ko: '교수님 기본 정보, 어떤 분인지', ja: '教授の基本情報、どんな人か' },
+  traits: { ko: '교수님 성격, 성향, 어떤 스타일인지 설문 결과', ja: '教授の性格・タイプ、アンケート結果' },
+  scene: { ko: '이런 상황에서 어떻게 준비하고 대처하면 되는지', ja: 'この場面でどう準備・対処すればいいか' },
+  warning: { ko: '조심할 점, 하면 안 되는 것, 주의사항', ja: '気をつけること、してはいけないこと' },
+  talk: { ko: '스몰토크, 대화 주제, 교수님과 무슨 이야기를 하면 좋은지, 취미와 좋아하는 것', ja: '雑談・話題、教授と何を話せばいいか、趣味や好きなもの' },
+  dict: { ko: '교수님 말버릇·사투리 표현의 뜻, 무슨 말인지', ja: '教授の口癖・方言の意味、どういう意味か' },
+};
 const SOURCE_LABEL = {
   profile: { ko: '프로필', ja: 'プロフィール' },
   traits: { ko: '성향 분석', ja: '性格分析' },
@@ -30,14 +40,22 @@ const SOURCE_LABEL = {
 // 게시된 선배 제보(contribIndex.js)는 source_type 이 섹션 종류와 같고 source_ref 가 'contrib:<id>'
 
 export function createRag(db) {
-  // 교수님별 청크 캐시 (seed 후 서버 재시작하면 갱신, 제보 게시/취소 시 invalidate 로 갱신)
+  // 교수님별 검색 색인 캐시 (seed 후 서버 재시작하면 갱신, 제보 게시/취소 시 invalidate 로 갱신)
   const cache = new Map();
   const invalidate = (profId) => cache.delete(profId);
-  function chunksOf(profId) {
+  const chunkStmt = db.prepare(`SELECT id, prof_id, source_type, source_ref, title_ko, title_ja, content_ko, content_ja
+    FROM chunks WHERE prof_id = ?`);
+  function indexOf(profId) {
     if (!cache.has(profId)) {
-      const rows = db.prepare('SELECT * FROM chunks WHERE prof_id = ? AND embedding IS NOT NULL').all(profId);
-      const f32 = (b) => (b ? new Float32Array(b.buffer, b.byteOffset, b.byteLength / 4) : null);
-      cache.set(profId, rows.map((r) => ({ ...r, vecs: [f32(r.embedding), f32(r.embedding_ja)].filter(Boolean) })));
+      const docs = chunkStmt.all(profId).map((r) => ({
+        chunk: r,
+        // 언어별 문서: 섹션 힌트 + 제목 + 내용
+        texts: [
+          `${HINT[r.source_type]?.ko ?? ''}\n${r.title_ko}\n${r.content_ko}`,
+          r.content_ja ? `${HINT[r.source_type]?.ja ?? ''}\n${r.title_ja || ''}\n${r.content_ja}` : '',
+        ],
+      }));
+      cache.set(profId, buildIndex(docs));
     }
     return cache.get(profId);
   }
@@ -45,22 +63,13 @@ export function createRag(db) {
   const profStmt = db.prepare('SELECT id, name_ko, name_ja FROM professors WHERE id = ?');
   const logStmt = db.prepare('INSERT INTO chat_logs (prof_id, lang, question, answer, mode, top_score) VALUES (?,?,?,?,?,?)');
 
-  async function retrieve(profId, question) {
-    const [q] = await embed([question]);
-    return chunksOf(profId)
-      .map((c) => {
-        // 정규화 벡터 → 내적 = 코사인. 한국어/일본어 벡터 중 높은 쪽
-        let best = -1;
-        for (const v of c.vecs) {
-          let dot = 0;
-          for (let i = 0; i < q.length; i++) dot += q[i] * v[i];
-          if (dot > best) best = dot;
-        }
-        // 한마디는 "교수님" 같은 일반적인 말이 많아 아무 질문에나 걸리기 쉬움 → 살짝 낮춤
-        return { chunk: c, score: best * (WEIGHT[c.source_type] ?? 1) };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, TOP_K);
+  /** 질문 → [{ chunk, score(0~1) }] — 1등보다 많이 낮은 자료는 뺌 */
+  function retrieve(profId, question) {
+    const hits = indexOf(profId).search(question, TOP_K);
+    const top = hits[0]?.score ?? 0;
+    return hits
+      .filter((h) => h.score >= top * REL_SCORE)
+      .map((h) => ({ chunk: h.doc.chunk, score: h.score }));
   }
 
   function systemPrompt(name, lang, context) {
@@ -92,7 +101,7 @@ export function createRag(db) {
     if (!prof) throw new Error('unknown professor');
     const name = lang === 'ja' ? prof.name_ja || prof.name_ko : prof.name_ko;
 
-    const hits = await retrieve(profId, question);
+    const hits = retrieve(profId, question);
     const useful = hits.filter((h) => h.score >= MIN_SCORE);
     const topScore = hits[0]?.score ?? 0;
     const sources = useful.map((h, i) => ({
@@ -105,9 +114,19 @@ export function createRag(db) {
     const content = (c) => (lang === 'ja' ? c.content_ja || c.content_ko : c.content_ko);
     const context = useful.map((h, i) => `[${i + 1}] (${sources[i].section}) ${content(h.chunk)}`).join('\n\n');
 
+    // 관련 자료가 없으면 AI를 부르지 않고 바로 제보 부탁 (프론트가 mode: 'empty' 를 보고 제보 버튼을 띄움)
+    if (!useful.length) {
+      const text = lang === 'ja'
+        ? `${name}について、その質問に関する情報はまだありません。\n経験したことがあれば、投稿してもらえませんか？次に同じことが気になる後輩の助けになります。`
+        : `${name}에 대해 그 질문과 관련된 정보는 아직 없어요.\n혹시 겪어 보셨다면 제보해 주실 수 있나요? 같은 게 궁금한 다음 후배에게 큰 도움이 돼요.`;
+      logStmt.run(profId, lang, question, text, 'empty', topScore); // 관리자 > 챗봇 기록에서 "자료 없음" 질문 = 모아야 할 주제
+      return { answer: text, sources: [], mode: 'empty', notice: null, noticeType: null };
+    }
+
     let mode = 'generate';
     let text;
     let notice = null;
+    let noticeType = null; // info: 키 없이 검색만 하는 기본 동작 · warn: AI 답변 실패
     try {
       // Claude: 시스템 프롬프트는 messages가 아니라 별도 system 필드. 대화는 user로 시작해야 함
       const past = history.slice(-6);
@@ -117,17 +136,14 @@ export function createRag(db) {
       // 답변 모델을 쓸 수 없음(키 없음·권한·한도 등) → 찾은 자료를 그대로 보여 주기
       if (!(err instanceof ChatUnavailableError)) throw err;
       console.warn(`[chat] ${CHAT_MODEL} 사용 불가 → 검색 모드 (${err.code}: ${err.message})`);
-      mode = useful.length ? 'retrieval' : 'empty';
+      mode = 'retrieval';
       notice = NOTICE[err.code]?.[lang] ?? NOTICE.default[lang];
-      text = useful.length
-        ? useful.slice(0, 3).map((h, i) => `[${i + 1}] ${content(h.chunk)}`).join('\n\n')
-        : (lang === 'ja'
-          ? `${name}について、その質問に関係する資料はまだありません。経験があれば「投稿する」から教えてください！`
-          : `${name}에 대해 그 질문과 관련된 자료가 아직 없어요. 겪어 본 경험이 있다면 '제보하기'로 알려 주세요!`);
+      noticeType = err.code === 'no_api_key' ? 'info' : 'warn';
+      text = useful.slice(0, 3).map((h, i) => `[${i + 1}] ${content(h.chunk)}`).join('\n\n');
     }
 
     logStmt.run(profId, lang, question, text, mode, topScore);
-    return { answer: text, sources: mode === 'empty' ? [] : sources, mode, notice };
+    return { answer: text, sources, mode, notice, noticeType };
   }
 
   return { answer, retrieve, invalidate };

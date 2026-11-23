@@ -1,0 +1,12 @@
+{
+  "name": "gsc-professor-user-guide",
+  "private": true,
+  "description": "GSC 교수님 사용 설명서 — 배포용 (프론트 빌드 + 백엔드가 같이 제공)",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "npm ci --prefix frontend --include=dev && npm run build --prefix frontend && npm ci --prefix backend --omit=dev",
+    "start": "npm run seed --prefix backend && npm start --prefix backend"
+  }
+}

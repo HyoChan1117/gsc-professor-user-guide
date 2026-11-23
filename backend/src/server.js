@@ -7,13 +7,17 @@
    POST /api/quiz            AI 퀴즈 { profId, lang, exclude? } → { mode, questions }
    POST /api/contrib         섹션별 익명 제보 저장 (contrib.js — contributions)
    GET  /api/contrib/:id/options 제보 폼 선택지 (성향 항목 · 상황 카드)
+   GET  /api/thread/:profId  교수님께 한마디 목록 · POST /api/thread 쓰기 (thread.js — 바로 공개)
    /api/admin/*              관리자 (admin.js — .env ADMIN_PASSWORD 필요)
    실행: npm run dev  (프론트 vite가 /api 를 이 서버로 프록시)
    ========================================================================== */
 import express from 'express';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openDb, SCHEMA, migrate } from './db.js';
 import { createRag } from './rag.js';
-import { EMBED_MODEL } from './openai.js';
+import { SEARCH_MODEL } from './search.js';
 import { CHAT_MODEL } from './claude.js';
 import { mountAdmin } from './admin.js';
 import { createQuiz } from './quiz.js';
@@ -21,6 +25,7 @@ import { mountContrib, upgradeAll } from './contrib.js';
 import { buildProfView } from './view.js';
 import { createContribIndex } from './contribIndex.js';
 import { createOrganizer } from './organize.js';
+import { mountThread } from './thread.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const db = openDb();
@@ -37,6 +42,8 @@ const quiz = createQuiz(db);
 // 예전 형식(섹션과 다른 항목)으로 저장된 제보 → 섹션 형식. 게시 중인 것은 챗봇 자료도 다시 만듦
 const upgraded = upgradeAll(db);
 const app = express();
+// 배포(Render 등)에서는 앞단 프록시가 하나 있음 → 실제 접속자 IP로 요청 제한 (안 하면 모두가 같은 IP로 묶임)
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
 app.use(express.json({ limit: '32kb' }));
 
 /* ---- 아주 단순한 요청 제한: IP당 1분에 max번 ---- */
@@ -56,7 +63,7 @@ const rateLimit = makeRateLimit(20);     // 챗봇 (API 키 보호)
 
 app.get('/api/health', (req, res) => {
   const chunks = db.prepare('SELECT COUNT(*) n FROM chunks').get().n;
-  res.json({ ok: true, chunks, chatModel: CHAT_MODEL, embedModel: EMBED_MODEL });
+  res.json({ ok: true, chunks, chatModel: CHAT_MODEL, search: SEARCH_MODEL });
 });
 
 app.get('/api/profs', (req, res) => {
@@ -114,11 +121,20 @@ app.post('/api/quiz', quizLimit, async (req, res) => {
 });
 
 mountContrib(app, db, makeRateLimit, organizer);
+mountThread(app, db, makeRateLimit);
 mountAdmin(app, db, makeRateLimit, contribIndex, organizer);
 
+/* ---- 배포: 빌드된 프론트(frontend/dist)도 이 서버가 제공 — /api 외 경로는 index.html (SPA) ---- */
+const DIST = resolve(dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
+app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
+if (existsSync(DIST)) {
+  app.use(express.static(DIST, { index: false, maxAge: '1h' }));
+  app.get('*', (req, res) => res.sendFile(resolve(DIST, 'index.html')));
+}
+
 app.listen(PORT, () => {
-  console.log(`✓ API 서버: http://localhost:${PORT}  (chat: ${CHAT_MODEL}, embed: ${EMBED_MODEL})`);
-  // 게시됐는데 챗봇 검색 자료가 없는 제보 채우기 (이전에 임베딩이 실패했던 것 등)
+  console.log(`✓ API 서버: http://localhost:${PORT}  (chat: ${CHAT_MODEL}, search: ${SEARCH_MODEL})`);
+  // 게시됐는데 챗봇 검색 자료가 없는 제보 채우기 (이전에 저장이 실패했던 것 등)
   (async () => {
     for (const id of upgraded) await contribIndex.sync(id); // 형식이 바뀐 게시 제보는 챗봇 자료도 새로
     await contribIndex.syncMissing();

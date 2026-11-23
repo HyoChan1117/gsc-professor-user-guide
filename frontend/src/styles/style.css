@@ -1554,3 +1554,45 @@ fieldset.survey-q > legend.survey-q__title + * { clear: both; }
   .contrib-layout { grid-template-columns: 1fr; }
   .contrib-preview { position: static; }
 }
+
+/* ---- 챗봇이 답하지 못한 질문 → 제보 유도 ---- */
+.chat-contrib {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--green);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--green);
+}
+.chat-contrib:hover { background: var(--green); color: var(--bg); }
+.chat-contrib-more {
+  display: inline-block;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.chat-contrib-more:hover { color: var(--green); }
+.asked-banner { position: relative; margin-bottom: 20px; padding: 14px 44px 14px 18px; border-color: var(--green); }
+.asked-banner__q { margin: 6px 0; font-family: var(--font-mono); color: var(--text); }
+.asked-banner__desc { margin: 0; font-size: 14px; color: var(--text-2); }
+.asked-banner__close {
+  position: absolute; top: 10px; right: 12px;
+  border: 0; background: none; font-size: 18px; line-height: 1; color: var(--text-2); cursor: pointer;
+}
+.asked-banner__close:hover { color: var(--text); }
+
+/* ---- 한마디 게시판: 새로고침 · 오류 ---- */
+.bbs__reload {
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.bbs__reload:hover { color: var(--green); }
+.bbs__error { margin: 8px 0 0; font-size: 13px; color: var(--pink); }
