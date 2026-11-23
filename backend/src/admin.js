@@ -12,6 +12,7 @@
    DELETE /api/admin/contrib/:id
    GET    /api/admin/chat             ?prof=&mode=&q=&limit=&offset=
    DELETE /api/admin/chat/:id
+   GET · PATCH · DELETE /api/admin/thread  교수님께 한마디 숨기기 · 삭제 (thread.js)
 
    토큰은 서버 메모리에만 보관 (12시간). 서버를 재시작하면 다시 로그인.
    ========================================================================== */
@@ -21,6 +22,7 @@ const TOKEN_TTL = 12 * 60 * 60 * 1000;
 // new: 검수 대기 · published: 게시(사이트 공개) · reviewed: 보류 · rejected: 반려
 const STATUSES = ['new', 'published', 'reviewed', 'rejected'];
 import { KINDS, GRADES, PUBLIC_KINDS, validate } from './contrib.js';
+import { mountThreadAdmin } from './thread.js';
 
 const KIND_KEYS = Object.keys(KINDS);
 
@@ -225,6 +227,9 @@ export function mountAdmin(app, db, makeRateLimit, contribIndex, organizer) {
     const rows = db.prepare(`SELECT * FROM chat_logs ${w} ORDER BY id DESC LIMIT ? OFFSET ?`).all(...args, limit, offset);
     res.json({ total, rows });
   });
+
+  /* ---- 교수님께 한마디 ---- */
+  mountThreadAdmin(app, db, { int, like });
 
   app.delete('/api/admin/chat/:id', (req, res) => {
     const info = db.prepare('DELETE FROM chat_logs WHERE id = ?').run(int(req.params.id, 0, 0, 1e12));

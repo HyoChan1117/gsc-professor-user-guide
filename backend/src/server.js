@@ -7,6 +7,7 @@
    POST /api/quiz            AI 퀴즈 { profId, lang, exclude? } → { mode, questions }
    POST /api/contrib         섹션별 익명 제보 저장 (contrib.js — contributions)
    GET  /api/contrib/:id/options 제보 폼 선택지 (성향 항목 · 상황 카드)
+   GET  /api/thread/:profId  교수님께 한마디 목록 · POST /api/thread 쓰기 (thread.js — 바로 공개)
    /api/admin/*              관리자 (admin.js — .env ADMIN_PASSWORD 필요)
    실행: npm run dev  (프론트 vite가 /api 를 이 서버로 프록시)
    ========================================================================== */
@@ -24,6 +25,7 @@ import { mountContrib, upgradeAll } from './contrib.js';
 import { buildProfView } from './view.js';
 import { createContribIndex } from './contribIndex.js';
 import { createOrganizer } from './organize.js';
+import { mountThread } from './thread.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const db = openDb();
@@ -119,6 +121,7 @@ app.post('/api/quiz', quizLimit, async (req, res) => {
 });
 
 mountContrib(app, db, makeRateLimit, organizer);
+mountThread(app, db, makeRateLimit);
 mountAdmin(app, db, makeRateLimit, contribIndex, organizer);
 
 /* ---- 배포: 빌드된 프론트(frontend/dist)도 이 서버가 제공 — /api 외 경로는 index.html (SPA) ---- */

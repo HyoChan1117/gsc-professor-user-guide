@@ -1583,3 +1583,16 @@ fieldset.survey-q > legend.survey-q__title + * { clear: both; }
   border: 0; background: none; font-size: 18px; line-height: 1; color: var(--text-2); cursor: pointer;
 }
 .asked-banner__close:hover { color: var(--text); }
+
+/* ---- 한마디 게시판: 새로고침 · 오류 ---- */
+.bbs__reload {
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.bbs__reload:hover { color: var(--green); }
+.bbs__error { margin: 8px 0 0; font-size: 13px; color: var(--pink); }
