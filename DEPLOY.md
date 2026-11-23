@@ -1,59 +1,85 @@
 # 배포
 
-서버 하나가 **빌드된 프론트 화면 + `/api`** 를 같이 제공합니다. API 키 없이 동작합니다.
+**배포는 GitHub Actions, 서버 · DB 는 Cloudflare** 입니다. API 키 없이 동작합니다.
 
-## 발표 · 시연: 내 PC + Cloudflare Tunnel (가입 필요 없음)
+| 무엇 | 어디 |
+|---|---|
+| 서버 (API `/api/*`) | Cloudflare **Workers** (`backend/src/worker.js`) |
+| DB (교수님 자료 · 제보 · 한마디 · 챗봇 기록) | Cloudflare **D1** (`gsc-db`) |
+| 화면 (빌드된 프론트) | Workers 정적 파일 (`frontend/dist`) |
+| 배포 | **GitHub Actions** (`.github/workflows/deploy.yml`) |
+| 주소 | `https://gsc-professor-user-guide.<계정 이름>.workers.dev` (고정) |
 
-PC에서 서버를 켜고 `https://….trycloudflare.com` 공개 주소를 붙입니다. 잠들지 않고, 제보 · 한마디가 PC의 DB 파일에 계속 남습니다.
+## 흐름
 
-```powershell
-winget install --id Cloudflare.cloudflared     # 처음 한 번
-powershell -ExecutionPolicy Bypass -File .\demo.ps1            # 빌드 + 서버(새 창) + 터널
-powershell -ExecutionPolicy Bypass -File .\demo.ps1 -SkipBuild # 코드를 안 고쳤으면 빠르게
-```
+| 언제 | GitHub Actions 가 하는 일 |
+|---|---|
+| PR 을 열거나 고칠 때 | 빌드 → 검색 정확도 테스트 → 서버 · API 전체 점검 → Cloudflare 번들 확인 (**배포 안 함**) |
+| `main` 에 push · merge | 위 테스트 통과 → D1 준비 · 기본 자료 반영 → Workers 배포 → 배포된 주소 점검 |
+| Actions 탭 → Run workflow | 위와 같음 (수동) |
 
-- 터널 창에 나오는 `https://….trycloudflare.com` 주소를 공유 (**켤 때마다 주소가 바뀜** — 발표 직전에 켜고 공유)
-- 끄기: 터널 창 `Ctrl+C` + 서버 창 닫기
-- PC가 꺼지거나 절전되면 사이트도 꺼짐 → 전원 연결, 절전 끄기
-- 관리자 페이지를 쓰려면 `backend/.env` 에 `ADMIN_PASSWORD=…` (공개 주소이므로 길고 어렵게)
-- 개발 서버(`npm run dev`)가 8787 포트를 쓰고 있으면 먼저 끄기
+- 테스트를 하나라도 통과하지 못하면 배포하지 않습니다.
+- 배포할 때 기본 자료(`backend/data/profs.json`)만 다시 넣고, **선배 제보 · 한마디 · 챗봇 기록은 그대로** 둡니다. D1 은 계속 유지되므로 재배포해도 데이터가 사라지지 않습니다.
 
-## 계속 운영: Render
+## 처음 한 번: 저장소 주인이 할 일
 
-```
-npm run build   # 프론트 빌드(frontend/dist) + 백엔드 패키지 설치
-npm start       # DB 만들기(seed) → 서버 실행 (PORT 환경 변수, 기본 8787)
-```
+1. <https://dash.cloudflare.com> 가입 (무료, 카드 필요 없음)
+2. 왼쪽 메뉴 **Workers & Pages** 를 한 번 열기 — `workers.dev` 하위 주소(계정 이름)를 정하라고 하면 정하기
+3. **계정 ID** 복사: Workers & Pages 화면 오른쪽 **Account ID**
+4. **API 토큰** 만들기: 오른쪽 위 프로필 → **My Profile → API Tokens → Create Token**
+   - 템플릿 **Edit Cloudflare Workers** 선택 → 권한에 **Account · D1 · Edit** 추가 → Continue → Create
+   - 만든 토큰 문자열 복사 (다시 볼 수 없음)
+5. GitHub 저장소 → **Settings → Secrets and variables → Actions → New repository secret**
 
-### 처음 한 번: Render에 올리기
+   | 이름 | 값 | 필수 |
+   |---|---|---|
+   | `CLOUDFLARE_API_TOKEN` | 4번 토큰 | 필수 |
+   | `CLOUDFLARE_ACCOUNT_ID` | 3번 계정 ID | 필수 |
+   | `ADMIN_PASSWORD` | 관리자 페이지 비밀번호 (길고 추측하기 어렵게) | 선택 |
+   | `ANTHROPIC_API_KEY` | Claude API 키 — 넣으면 AI 답변 · AI 퀴즈 · 제보 AI 정리가 켜짐 | 선택 |
 
-1. <https://render.com> 에 GitHub 계정으로 가입 (무료, 카드 필요 없음)
-2. **New → Blueprint** → 이 저장소 선택 → 저장소의 `render.yaml` 을 그대로 사용
-3. 환경 변수 입력 화면에서
-   - `ADMIN_PASSWORD`: 관리자 페이지 비밀번호 (길고 추측하기 어렵게)
-   - `ANTHROPIC_API_KEY`: 비워 둬도 됨 (넣으면 AI 답변 · AI 퀴즈가 켜짐)
-4. **Apply** → 몇 분 뒤 `https://<서비스 이름>.onrender.com` 주소가 생김
+6. **Actions** 탭 → "Test & deploy to Cloudflare" → **Run workflow** (또는 `main` 에 아무 merge)
+7. 실행 결과 맨 아래 **배포 완료: https://….workers.dev** 주소 확인
 
-그다음부터는 **`main` 브랜치에 push 하면 자동으로 다시 배포**됩니다.
+D1 데이터베이스(`gsc-db`)는 Actions 가 처음 배포할 때 **자동으로 만듭니다.** 시크릿은 저장소 주인 · 관리자만 추가할 수 있습니다.
+시크릿이 없으면 Actions 는 테스트만 하고 배포는 건너뜁니다 (실패로 표시되지 않음).
 
-### 확인
+## 확인
 
-- `https://<주소>/api/health` → `{"ok":true,"chunks":30,...}`
+- GitHub **Actions** 탭에서 초록색 체크
+- `https://<주소>/api/health` → `{"ok":true,"chunks":49,…,"runtime":"d1"}`
 - 홈 GREP 창에 질문 → 자료가 나오면 정상
 - `https://<주소>/admin` → `ADMIN_PASSWORD` 로 로그인
 
-### 무료 플랜에서 알아 둘 것
+## 무료 플랜 한도 (대략 — 정확한 값은 Cloudflare 요금 페이지에서 확인)
 
-| 상황 | 결과 | 대처 |
-|---|---|---|
-| 15분 동안 접속 없음 | 서버가 잠듦 → 다음 첫 접속이 **30~60초** 걸림 | **발표 5분 전에 한 번 접속**해서 깨워 두기 |
-| 서버 재시작 · 재배포 | 디스크가 초기화 → **선배 제보 · 챗봇 기록이 사라짐** (기본 자료는 seed 로 다시 생김) | 시연용으로는 괜찮음. 계속 운영하려면 아래 "제보를 계속 남기려면" |
-| 요청 제한 | 접속자 IP마다 따로 셈 (`TRUST_PROXY=1`) | 강의실 와이파이에서는 여러 명이 같은 IP일 수 있음 → 챗봇 1분 20번 · 퀴즈 1분 6번 |
+- Workers: 하루 요청 10만 번
+- D1: 저장 5GB, 하루 읽기 500만 행 · 쓰기 10만 행
 
-#### 제보를 계속 남기려면
+학과 사이트 규모로는 넉넉합니다. 잠들기(콜드 스타트)도 없습니다.
 
-Render 유료 플랜 + **Persistent Disk** 를 붙이고 환경 변수 `DB_PATH=/var/data/gsc.db` (디스크 경로)를 넣으면 재시작해도 DB가 유지됩니다.
-`npm start` 의 seed 는 제보(contributions) · 챗봇 기록을 지우지 않고 기본 자료만 다시 채웁니다.
+## 내 PC 에서 Cloudflare 와 똑같이 돌려 보기 (선택)
+
+```powershell
+npm ci
+npm run build
+npm run cf:seed:local     # 내 PC 의 가짜 D1 에 표 + 기본 자료
+npm run cf:dev            # http://localhost:8787 — 실제 Workers 런타임으로 실행
+```
+
+관리자 비밀번호는 저장소 폴더에 `.dev.vars` 파일을 만들고 `ADMIN_PASSWORD=…` 한 줄 (커밋되지 않음).
+
+## 발표 · 시연 백업: 내 PC + Cloudflare Tunnel
+
+Cloudflare 배포가 아직 안 됐거나 인터넷이 불안할 때를 위한 백업입니다. PC 에서 Node 서버를 켜고 `https://….trycloudflare.com` 임시 주소를 붙입니다.
+
+```powershell
+winget install --id Cloudflare.cloudflared     # 처음 한 번
+powershell -ExecutionPolicy Bypass -File .\demo.ps1 -SkipBuild
+```
+
+- 터널 창에 나오는 주소를 공유 (켤 때마다 바뀜), 끝나면 터널 창 `Ctrl+C` + 서버 창 닫기
+- PC 가 꺼지거나 절전되면 사이트도 꺼짐. 데이터는 PC 의 `backend/data/gsc.db` 에 남음 (Cloudflare D1 과는 별개)
 
 ## 기본 자료를 고쳤을 때
 
@@ -61,11 +87,12 @@ Render 유료 플랜 + **Persistent Disk** 를 붙이고 환경 변수 `DB_PATH=
 
 ```bash
 cd frontend && npm run export-data   # backend/data/profs.json 갱신
+cd ../backend && npm run eval        # 검색 정확도 확인 (선택)
 ```
 
-`backend/data/profs.json` 까지 커밋 · push 하면 배포 때 seed 가 새 자료로 DB를 만듭니다.
+`.jsx` 와 `profs.json` 을 같이 커밋 · PR → `main` 에 merge 하면 Actions 가 D1 에 반영합니다.
 
 ## 왜 GitHub Pages 가 아닌가
 
-GitHub Pages 는 정적 파일만 올릴 수 있어서 챗봇 · 퀴즈 · 제보 · 관리자(서버 + DB 필요)가 동작하지 않습니다.
-화면만 보여 주는 용도라면 가능하지만, 이 프로젝트의 핵심 기능이 빠집니다.
+GitHub Pages 는 정적 파일만 올릴 수 있어서 챗봇 · 제보 · 한마디 · 관리자(서버 + DB 필요)가 동작하지 않습니다.
+그래서 GitHub Actions 로 테스트 · 배포하고, 실제 서버와 DB 는 Cloudflare Workers + D1 이 맡습니다.

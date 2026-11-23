@@ -1,12 +1,18 @@
 {
   "name": "gsc-professor-user-guide",
   "private": true,
-  "description": "GSC 교수님 사용 설명서 — 배포용 (프론트 빌드 + 백엔드가 같이 제공)",
+  "description": "GSC 교수님 사용 설명서 — 빌드 · 실행 · Cloudflare 배포",
   "engines": {
     "node": ">=22.13"
   },
   "scripts": {
     "build": "npm ci --prefix frontend --include=dev && npm run build --prefix frontend && npm ci --prefix backend --omit=dev",
-    "start": "npm run seed --prefix backend && npm start --prefix backend"
+    "start": "npm run seed --prefix backend && npm start --prefix backend",
+    "cf:seed:local": "npm run seed:sql --prefix backend && wrangler d1 execute gsc-db --local --file backend/data/d1-seed.sql",
+    "cf:dev": "wrangler dev",
+    "test": "npm run eval:check --prefix backend"
+  },
+  "devDependencies": {
+    "wrangler": "^4.166.0"
   }
 }

@@ -17,34 +17,36 @@ const parse = (s, fb = null) => { try { return JSON.parse(s); } catch { return f
 const LEVEL_PREFIX = { warning: 'W', hint: 'H', error: 'E', note: 'N' };
 const NO_MEANING = { ko: '의미 조사 중', ja: '意味を調査中' };
 
-export function buildProfView(db, id) {
-  const p = db.prepare('SELECT * FROM professors WHERE id = ?').get(id);
+export async function buildProfView(db, id) {
+  const p = await db.prepare('SELECT * FROM professors WHERE id = ?').get(id);
   if (!p) return null;
   const all = (sql) => db.prepare(sql).all(id);
   const profile = parse(p.profile_json, {}) || {};
 
   /* ---- DB 기본 데이터 ---- */
-  let traits = all('SELECT label_ko, label_ja, pct FROM traits WHERE prof_id = ? ORDER BY ord')
+  let traits = (await all('SELECT label_ko, label_ja, pct FROM traits WHERE prof_id = ? ORDER BY ord'))
     .map((r) => ({ pct: r.pct, label: L(r.label_ko, r.label_ja) }));
-  const scenes = all('SELECT id, file, tab, title_ko, title_ja, tip_ko, tip_ja FROM scenes WHERE prof_id = ? ORDER BY ord').map((s) => ({
+  // 체크리스트는 한 번에 읽어서 카드별로 나눔
+  const sceneItems = await all('SELECT scene_id, text_ko, text_ja FROM scene_items WHERE scene_id IN (SELECT id FROM scenes WHERE prof_id = ?) ORDER BY scene_id, ord');
+  const scenes = (await all('SELECT id, file, tab, title_ko, title_ja, tip_ko, tip_ja FROM scenes WHERE prof_id = ? ORDER BY ord')).map((s) => ({
     file: s.file,
     tab: s.tab,
     title: L(s.title_ko, s.title_ja),
     tip: L(s.tip_ko, s.tip_ja),
-    items: db.prepare('SELECT text_ko, text_ja FROM scene_items WHERE scene_id = ? ORDER BY ord').all(s.id).map((it) => L(it.text_ko, it.text_ja)),
+    items: sceneItems.filter((it) => it.scene_id === s.id).map((it) => L(it.text_ko, it.text_ja)),
   }));
-  const warnings = all('SELECT code, level, title_ko, title_ja, msg_ko, msg_ja FROM warnings WHERE prof_id = ? ORDER BY id')
+  const warnings = (await all('SELECT code, level, title_ko, title_ja, msg_ko, msg_ja FROM warnings WHERE prof_id = ? ORDER BY id'))
     .map((w) => ({ level: w.level, id: w.code, title: L(w.title_ko, w.title_ja), msg: L(w.msg_ko, w.msg_ja) }));
-  const talk = all('SELECT key, title_ko, title_ja, body_ko, body_ja FROM talk_topics WHERE prof_id = ? ORDER BY id')
+  const talk = (await all('SELECT key, title_ko, title_ja, body_ko, body_ja FROM talk_topics WHERE prof_id = ? ORDER BY id'))
     .map((k) => ({ key: k.key, title: L(k.title_ko, k.title_ja), body: L(k.body_ko, k.body_ja) }));
-  const dictRows = all('SELECT term, tag, meaning_ko, meaning_ja, tip_ko, tip_ja, in_preview FROM dict_entries WHERE prof_id = ? ORDER BY id');
+  const dictRows = await all('SELECT term, tag, meaning_ko, meaning_ja, tip_ko, tip_ja, in_preview FROM dict_entries WHERE prof_id = ? ORDER BY id');
   const dict = dictRows.map((d) => ({ term: d.term, tag: d.tag, ko: d.meaning_ko, ja: d.meaning_ja || d.meaning_ko, tip: L(d.tip_ko, d.tip_ja) }));
   const dictPreview = dictRows.filter((d) => d.in_preview).map((d) => ({ term: d.term, ko: d.meaning_ko, ja: d.meaning_ja || d.meaning_ko }));
   let survey = p.survey_n != null ? { n: p.survey_n, note: L(p.survey_note_ko, p.survey_note_ja) } : null;
 
   /* ---- 게시된 선배 제보 합치기 (게시 순서대로) ---- */
-  const contribs = all(`SELECT id, kind, lang, data FROM contributions
-    WHERE prof_id = ? AND status = 'published' AND kind != 'other' ORDER BY published_at, id`)
+  const contribs = (await all(`SELECT id, kind, lang, data FROM contributions
+    WHERE prof_id = ? AND status = 'published' AND kind != 'other' ORDER BY published_at, id`))
     .map((r) => ({ ...r, data: parse(r.data, {}) || {} }));
   const mark = (c) => ({ id: c.id, lang: c.lang });
   const counted = { traits: 0, scene: 0, warning: 0, talk: 0, dict: 0 };

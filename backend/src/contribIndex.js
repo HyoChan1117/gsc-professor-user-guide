@@ -63,11 +63,11 @@ export function contribChunk(row, ctx = {}) {
 }
 
 /** 상황별 가이드 제보가 붙은 기존 카드의 제목 (DB scenes) — 없으면 undefined */
-export function sceneTitleFor(db, row) {
+export async function sceneTitleFor(db, row) {
   if (row.kind !== 'scene') return undefined;
   const d = typeof row.data === 'string' ? parse(row.data) : row.data;
   if (!d.scene || d.scene === NEW_SCENE) return undefined;
-  const s = db.prepare('SELECT title_ko, title_ja FROM scenes WHERE prof_id = ? AND tab = ?').get(row.prof_id, d.scene);
+  const s = await db.prepare('SELECT title_ko, title_ja FROM scenes WHERE prof_id = ? AND tab = ?').get(row.prof_id, d.scene);
   return s ? { ko: s.title_ko, ja: s.title_ja || s.title_ko } : undefined;
 }
 
@@ -79,50 +79,46 @@ export function createContribIndex(db, rag) {
 
   /** 제보 하나의 검색 자료를 현재 상태에 맞춤 — 게시 중이면 (다시) 만들고, 아니면 지움. 성공 여부 반환 */
   async function sync(id) {
-    const row = rowStmt.get(id);
+    const row = await rowStmt.get(id);
     const ref = `contrib:${id}`;
     if (!row || row.status !== 'published' || !PUBLIC_KINDS.includes(row.kind)) {
-      const info = delStmt.run(ref);
+      const info = await delStmt.run(ref);
       if (info.changes && row) rag.invalidate(row.prof_id);
       return true;
     }
-    const c = contribChunk(row, { sceneTitle: sceneTitleFor(db, row) });
-    let inTx = false;
+    const c = contribChunk(row, { sceneTitle: await sceneTitleFor(db, row) });
     try {
-      db.exec('BEGIN');
-      inTx = true;
-      delStmt.run(ref);
-      // 키워드 검색 — 벡터 없이 글만 저장 (색인은 rag.js 가 다시 만듦)
-      insStmt.run(c.prof_id, c.type, c.ref, c.title.ko, c.title.ja, c.content.ko, c.content.ja, null, null, SEARCH_MODEL);
-      db.exec('COMMIT');
-      inTx = false;
+      // 지우고 다시 넣기를 한 트랜잭션으로. 키워드 검색이라 벡터 없이 글만 저장 (색인은 rag.js 가 다시 만듦)
+      await db.batch([
+        delStmt.bind(ref),
+        insStmt.bind(c.prof_id, c.type, c.ref, c.title.ko, c.title.ja, c.content.ko, c.content.ja, null, null, SEARCH_MODEL),
+      ]);
       rag.invalidate(row.prof_id);
       return true;
     } catch (err) {
-      if (inTx) db.exec('ROLLBACK');
       // 저장 실패 — 수정 전 내용(개인정보를 지웠을 수도 있음)이 남지 않도록 옛 자료는 지움.
-      // 게시는 유지되고, 다음 서버 시작 때 다시 시도
-      if (delStmt.run(ref).changes) rag.invalidate(row.prof_id);
+      // 게시는 유지되고, 다음 syncMissing 때 다시 시도
+      if ((await delStmt.run(ref)).changes) rag.invalidate(row.prof_id);
       console.warn(`[contrib-index] #${id} 검색 자료 생성 실패: ${err.message}`);
       return false;
     }
   }
 
   /** 삭제된 제보의 검색 자료 지우기 */
-  function remove(id, profId) {
-    const info = delStmt.run(`contrib:${id}`);
+  async function remove(id, profId) {
+    const info = await delStmt.run(`contrib:${id}`);
     if (info.changes && profId) rag.invalidate(profId);
   }
 
-  /** 서버 시작 시: 게시 중인데 검색 자료가 없는 제보 채우기 + 게시가 내려간 제보의 자료 정리 */
+  /** (Node 서버 시작 시) 게시 중인데 검색 자료가 없는 제보 채우기 + 게시가 내려간 제보의 자료 정리 */
   async function syncMissing() {
-    const missing = db.prepare(`SELECT id FROM contributions c WHERE status = 'published' AND kind != 'other'
+    const missing = await db.prepare(`SELECT id FROM contributions c WHERE status = 'published' AND kind != 'other'
       AND NOT EXISTS (SELECT 1 FROM chunks WHERE source_ref = 'contrib:' || c.id)`).all();
-    const stale = db.prepare(`SELECT DISTINCT prof_id FROM chunks WHERE source_ref LIKE 'contrib:%'
+    const stale = await db.prepare(`SELECT DISTINCT prof_id FROM chunks WHERE source_ref LIKE 'contrib:%'
       AND CAST(substr(source_ref, 9) AS INTEGER) NOT IN (SELECT id FROM contributions WHERE status = 'published')`).all();
     if (stale.length) {
-      db.exec(`DELETE FROM chunks WHERE source_ref LIKE 'contrib:%'
-        AND CAST(substr(source_ref, 9) AS INTEGER) NOT IN (SELECT id FROM contributions WHERE status = 'published')`);
+      await db.prepare(`DELETE FROM chunks WHERE source_ref LIKE 'contrib:%'
+        AND CAST(substr(source_ref, 9) AS INTEGER) NOT IN (SELECT id FROM contributions WHERE status = 'published')`).run();
       for (const s of stale) rag.invalidate(s.prof_id);
     }
     let ok = 0;

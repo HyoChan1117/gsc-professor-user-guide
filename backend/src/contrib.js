@@ -16,6 +16,8 @@
         → 관리자가 확인 · 필요하면 수정 → 'published'(게시) 일 때만 사이트 · 챗봇에 반영
    ========================================================================== */
 
+import { makeRateLimit, readJson, background } from './http.js';
+
 export const GRADES = ['1', '2', '3', 'alumni'];
 
 // 교수님 DB에 성향 항목이 없을 때(설문 수집 전) 쓰는 기본 성향 — label_ko 가 투표 값
@@ -109,17 +111,17 @@ export function validate(kind, body) {
 }
 
 /** 교수님별 선택지 — 성향 투표 항목 · 상황 카드 */
-export function optionsFor(db, profId) {
-  const traits = db.prepare('SELECT label_ko, label_ja FROM traits WHERE prof_id = ? ORDER BY ord').all(profId)
+export async function optionsFor(db, profId) {
+  const traits = (await db.prepare('SELECT label_ko, label_ja FROM traits WHERE prof_id = ? ORDER BY ord').all(profId))
     .map((r) => ({ ko: r.label_ko, ja: r.label_ja || r.label_ko }));
-  const scenes = db.prepare('SELECT tab, title_ko, title_ja FROM scenes WHERE prof_id = ? ORDER BY ord').all(profId)
+  const scenes = (await db.prepare('SELECT tab, title_ko, title_ja FROM scenes WHERE prof_id = ? ORDER BY ord').all(profId))
     .map((r) => ({ tab: r.tab, ko: r.title_ko, ja: r.title_ja || r.title_ko }));
   return { traits: traits.length ? traits : DEFAULT_TRAITS, scenes };
 }
 
 /** 그 교수님에게 실제로 있는 선택지인지 (성향 · 상황) */
-function checkOptions(db, profId, kind, data) {
-  const opt = optionsFor(db, profId);
+async function checkOptions(db, profId, kind, data) {
+  const opt = await optionsFor(db, profId);
   if (kind === 'traits') {
     const allowed = new Set([...opt.traits, ...DEFAULT_TRAITS].map((t) => t.ko));
     data.traits = data.traits.filter((x) => allowed.has(x));
@@ -160,14 +162,14 @@ export function upgradeData(kind, d, sceneTabs = []) {
 }
 
 /** 서버 시작 시 — 예전 형식 제보를 새 형식으로 (data · original 둘 다). 바뀐 게시 제보 id 목록 반환 */
-export function upgradeAll(db) {
-  const rows = db.prepare('SELECT id, prof_id, kind, data, original, status FROM contributions').all();
-  const tabsOf = (profId) => db.prepare('SELECT tab FROM scenes WHERE prof_id = ?').all(profId).map((r) => r.tab);
+export async function upgradeAll(db) {
+  const rows = await db.prepare('SELECT id, prof_id, kind, data, original, status FROM contributions').all();
+  const tabsOf = async (profId) => (await db.prepare('SELECT tab FROM scenes WHERE prof_id = ?').all(profId)).map((r) => r.tab);
   const upd = db.prepare('UPDATE contributions SET data = ?, original = ? WHERE id = ?');
   const changed = [];
   for (const r of rows) {
     const parse = (s) => { try { return JSON.parse(s); } catch { return null; } };
-    const tabs = r.kind === 'scene' ? tabsOf(r.prof_id) : [];
+    const tabs = r.kind === 'scene' ? await tabsOf(r.prof_id) : [];
     const nd = upgradeData(r.kind, parse(r.data), tabs);
     const no = upgradeData(r.kind, parse(r.original), tabs);
     if (!nd && !no) continue;
@@ -176,44 +178,46 @@ export function upgradeAll(db) {
       const checked = validate(r.kind, v);
       return checked.error ? JSON.stringify(v) : JSON.stringify(checked.data);
     };
-    upd.run(fix(nd, r.data), fix(no, r.original), r.id);
+    await upd.run(fix(nd, r.data), fix(no, r.original), r.id);
     if (r.status === 'published') changed.push(r.id);
   }
   if (rows.length && changed.length) console.log(`✓ 예전 형식 제보 ${changed.length}개를 섹션 형식으로 변환`);
   return changed;
 }
 
-/** organizer: 제보 AI 정리 (organize.js) — 저장 직후 백그라운드로 실행 */
-export function mountContrib(app, db, makeRateLimit, organizer) {
+/** 라우트 — organizer: 제보 AI 정리 (organize.js), 저장 직후 백그라운드로 실행 */
+export function mountContrib(app, db, organizer) {
   // data 와 original 에 같은 원문을 넣고, AI 정리가 끝나면 data 만 정리본으로 바뀜
   const insert = db.prepare(`INSERT INTO contributions (prof_id, kind, lang, grade, data, original, ai_status)
     VALUES (?,?,?,?,?,?,?)`);
   const profExists = db.prepare('SELECT id FROM professors WHERE id = ?');
 
-  app.post('/api/contrib', makeRateLimit(5), (req, res) => {
-    const b = req.body || {};
+  app.post('/api/contrib', makeRateLimit(5), async (c) => {
+    const b = await readJson(c);
     // 봇 함정 칸(화면에 안 보임)이 채워져 있으면 저장하지 않고 성공처럼 응답
-    if (b.website) return res.json({ ok: true });
+    if (b.website) return c.json({ ok: true });
 
-    if (!KINDS[b.kind]) return res.status(400).json({ error: 'unknown_kind' });
-    const prof = typeof b.profId === 'string' ? profExists.get(b.profId) : null;
-    if (!prof) return res.status(400).json({ error: 'unknown_professor' });
-    if (!GRADES.includes(b.grade)) return res.status(400).json({ error: 'missing_grade' });
+    if (!KINDS[b.kind]) return c.json({ error: 'unknown_kind' }, 400);
+    const prof = typeof b.profId === 'string' ? await profExists.get(b.profId) : null;
+    if (!prof) return c.json({ error: 'unknown_professor' }, 400);
+    if (!GRADES.includes(b.grade)) return c.json({ error: 'missing_grade' }, 400);
 
     const result = validate(b.kind, b);
-    if (result.error) return res.status(400).json(result);
-    const bad = checkOptions(db, prof.id, b.kind, result.data);
-    if (bad) return res.status(400).json(bad);
+    if (result.error) return c.json(result, 400);
+    const bad = await checkOptions(db, prof.id, b.kind, result.data);
+    if (bad) return c.json(bad, 400);
 
     const json = JSON.stringify(result.data);
-    const info = insert.run(prof.id, b.kind, b.lang === 'ja' ? 'ja' : 'ko', b.grade, json, json, organizer ? 'pending' : null);
+    const ai = organizer?.enabled() ? 'pending' : null;
+    const info = await insert.run(prof.id, b.kind, b.lang === 'ja' ? 'ja' : 'ko', b.grade, json, json, ai);
     const id = Number(info.lastInsertRowid);
-    res.status(201).json({ ok: true, id });
-    organizer?.kick(id); // 응답을 보낸 뒤 AI 정리 (제보자는 기다리지 않음)
+    if (ai) background(c, organizer.organize(id)); // 응답을 보낸 뒤 AI 정리 (제보자는 기다리지 않음)
+    return c.json({ ok: true, id }, 201);
   });
 
-  app.get('/api/contrib/:id/options', (req, res) => {
-    if (!profExists.get(req.params.id)) return res.status(404).json({ error: 'not_found' });
-    res.json(optionsFor(db, req.params.id));
+  app.get('/api/contrib/:id/options', async (c) => {
+    const id = c.req.param('id');
+    if (!(await profExists.get(id))) return c.json({ error: 'not_found' }, 404);
+    return c.json(await optionsFor(db, id));
   });
 }

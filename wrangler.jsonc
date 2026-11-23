@@ -1,0 +1,25 @@
+// Cloudflare Workers 설정 — 배포는 GitHub Actions(.github/workflows/deploy.yml)가 합니다. 순서: DEPLOY.md
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gsc-professor-user-guide",
+  // /api/* 를 처리하는 코드 (나머지 화면 파일은 아래 assets 에서 바로 나감)
+  "main": "backend/src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // 빌드된 프론트 — 없는 경로(/dialect 등)는 index.html (SPA), /api/* 는 먼저 Worker 로
+  "assets": {
+    "directory": "frontend/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // DB — Cloudflare D1. database_id 는 GitHub Actions 가 배포할 때 이름(gsc-db)으로 찾아 채웁니다
+  // (없으면 만들어 줌). 직접 배포할 때는 `npx wrangler d1 list` 의 id 로 바꾸세요.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "gsc-db", "database_id": "00000000-0000-0000-0000-000000000000" }
+  ],
+
+  // 비밀 값(ADMIN_PASSWORD, ANTHROPIC_API_KEY)은 여기 쓰지 않고 Worker 시크릿으로 (Actions 가 넣어 줌)
+  "observability": { "enabled": true }
+}

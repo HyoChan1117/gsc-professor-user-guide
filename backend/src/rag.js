@@ -40,14 +40,18 @@ const SOURCE_LABEL = {
 // 게시된 선배 제보(contribIndex.js)는 source_type 이 섹션 종류와 같고 source_ref 가 'contrib:<id>'
 
 export function createRag(db) {
-  // 교수님별 검색 색인 캐시 (seed 후 서버 재시작하면 갱신, 제보 게시/취소 시 invalidate 로 갱신)
-  const cache = new Map();
+  // 교수님별 검색 색인 캐시 — 제보 게시/취소 시 invalidate, 그리고 CACHE_MS 가 지나면 다시 만듦
+  // (Cloudflare 는 서버 인스턴스가 여러 개라 다른 인스턴스의 invalidate 가 닿지 않음 → 시간으로 갱신)
+  const CACHE_MS = 60_000;
+  const cache = new Map(); // profId → { index, at }
   const invalidate = (profId) => cache.delete(profId);
   const chunkStmt = db.prepare(`SELECT id, prof_id, source_type, source_ref, title_ko, title_ja, content_ko, content_ja
     FROM chunks WHERE prof_id = ?`);
-  function indexOf(profId) {
-    if (!cache.has(profId)) {
-      const docs = chunkStmt.all(profId).map((r) => ({
+  async function indexOf(profId) {
+    const hit = cache.get(profId);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.index;
+    {
+      const docs = (await chunkStmt.all(profId)).map((r) => ({
         chunk: r,
         // 언어별 문서: 섹션 힌트 + 제목 + 내용
         texts: [
@@ -55,17 +59,18 @@ export function createRag(db) {
           r.content_ja ? `${HINT[r.source_type]?.ja ?? ''}\n${r.title_ja || ''}\n${r.content_ja}` : '',
         ],
       }));
-      cache.set(profId, buildIndex(docs));
+      const index = buildIndex(docs);
+      cache.set(profId, { index, at: Date.now() });
+      return index;
     }
-    return cache.get(profId);
   }
 
   const profStmt = db.prepare('SELECT id, name_ko, name_ja FROM professors WHERE id = ?');
   const logStmt = db.prepare('INSERT INTO chat_logs (prof_id, lang, question, answer, mode, top_score) VALUES (?,?,?,?,?,?)');
 
   /** 질문 → [{ chunk, score(0~1) }] — 1등보다 많이 낮은 자료는 뺌 */
-  function retrieve(profId, question) {
-    const hits = indexOf(profId).search(question, TOP_K);
+  async function retrieve(profId, question) {
+    const hits = (await indexOf(profId)).search(question, TOP_K);
     const top = hits[0]?.score ?? 0;
     return hits
       .filter((h) => h.score >= top * REL_SCORE)
@@ -97,11 +102,11 @@ export function createRag(db) {
   }
 
   async function answer({ profId, lang = 'ko', question, history = [] }) {
-    const prof = profStmt.get(profId);
+    const prof = await profStmt.get(profId);
     if (!prof) throw new Error('unknown professor');
     const name = lang === 'ja' ? prof.name_ja || prof.name_ko : prof.name_ko;
 
-    const hits = retrieve(profId, question);
+    const hits = await retrieve(profId, question);
     const useful = hits.filter((h) => h.score >= MIN_SCORE);
     const topScore = hits[0]?.score ?? 0;
     const sources = useful.map((h, i) => ({
@@ -119,7 +124,7 @@ export function createRag(db) {
       const text = lang === 'ja'
         ? `${name}について、その質問に関する情報はまだありません。\n経験したことがあれば、投稿してもらえませんか？次に同じことが気になる後輩の助けになります。`
         : `${name}에 대해 그 질문과 관련된 정보는 아직 없어요.\n혹시 겪어 보셨다면 제보해 주실 수 있나요? 같은 게 궁금한 다음 후배에게 큰 도움이 돼요.`;
-      logStmt.run(profId, lang, question, text, 'empty', topScore); // 관리자 > 챗봇 기록에서 "자료 없음" 질문 = 모아야 할 주제
+      await logStmt.run(profId, lang, question, text, 'empty', topScore); // 관리자 > 챗봇 기록에서 "자료 없음" 질문 = 모아야 할 주제
       return { answer: text, sources: [], mode: 'empty', notice: null, noticeType: null };
     }
 
@@ -142,7 +147,7 @@ export function createRag(db) {
       text = useful.slice(0, 3).map((h, i) => `[${i + 1}] ${content(h.chunk)}`).join('\n\n');
     }
 
-    logStmt.run(profId, lang, question, text, mode, topScore);
+    await logStmt.run(profId, lang, question, text, mode, topScore);
     return { answer: text, sources, mode, notice, noticeType };
   }
 

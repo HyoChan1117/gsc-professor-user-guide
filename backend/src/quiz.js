@@ -115,11 +115,11 @@ export function createQuiz(db) {
   }
 
   /* ---- Claude를 쓸 수 없을 때: DB 표로 기본 문제 ---- */
-  function basicQuestions(profId, lang) {
+  async function basicQuestions(profId, lang) {
     const L = (row, key) => (lang === 'ja' ? row[`${key}_ja`] || row[`${key}_ko`] : row[`${key}_ko`]);
     const pool = [];
 
-    const dict = db.prepare("SELECT term, meaning_ko, meaning_ja, tip_ko, tip_ja FROM dict_entries WHERE prof_id = ? AND tag != '추정'").all(profId); // 뜻이 확실한 것만
+    const dict = await db.prepare("SELECT term, meaning_ko, meaning_ja, tip_ko, tip_ja FROM dict_entries WHERE prof_id = ? AND tag != '추정'").all(profId); // 뜻이 확실한 것만
     if (dict.length >= 4) {
       for (const d of dict) {
         const others = sample(dict.filter((x) => x.term !== d.term && L(x, 'meaning') !== L(d, 'meaning')), 3);
@@ -134,7 +134,7 @@ export function createQuiz(db) {
       }
     }
 
-    const traits = db.prepare('SELECT label_ko, label_ja, pct FROM traits WHERE prof_id = ? ORDER BY pct DESC').all(profId);
+    const traits = await db.prepare('SELECT label_ko, label_ja, pct FROM traits WHERE prof_id = ? ORDER BY pct DESC').all(profId);
     if (traits.length >= 4) {
       const top = traits[0];
       pool.push({
@@ -146,8 +146,8 @@ export function createQuiz(db) {
       });
     }
 
-    const scenes = db.prepare('SELECT id, title_ko, title_ja FROM scenes WHERE prof_id = ?').all(profId);
-    const items = db.prepare('SELECT scene_id, text_ko, text_ja FROM scene_items WHERE scene_id IN (SELECT id FROM scenes WHERE prof_id = ?)').all(profId);
+    const scenes = await db.prepare('SELECT id, title_ko, title_ja FROM scenes WHERE prof_id = ?').all(profId);
+    const items = await db.prepare('SELECT scene_id, text_ko, text_ja FROM scene_items WHERE scene_id IN (SELECT id FROM scenes WHERE prof_id = ?)').all(profId);
     for (const s of scenes) {
       const mine = items.filter((i) => i.scene_id === s.id);
       const others = sample(items.filter((i) => i.scene_id !== s.id), 3);
@@ -166,10 +166,10 @@ export function createQuiz(db) {
   }
 
   async function make({ profId, lang = 'ko', exclude = [] }) {
-    const prof = profStmt.get(profId);
+    const prof = await profStmt.get(profId);
     if (!prof) throw new Error('unknown professor');
     const name = lang === 'ja' ? prof.name_ja || prof.name_ko : prof.name_ko;
-    const chunks = chunkStmt.all(profId);
+    const chunks = await chunkStmt.all(profId);
     if (chunks.length === 0) return { mode: 'empty', questions: [] };
 
     // 자료 종류가 고루 섞이도록: 종류별로 하나씩 먼저 뽑고 나머지는 무작위
@@ -196,7 +196,7 @@ export function createQuiz(db) {
     } catch (err) {
       if (!(err instanceof ChatUnavailableError)) throw err;
       console.warn(`[quiz] ${CHAT_MODEL} 사용 불가 → 기본 문제 (${err.code}: ${err.message})`);
-      const questions = basicQuestions(profId, lang);
+      const questions = await basicQuestions(profId, lang);
       return { mode: questions.length ? 'basic' : 'empty', questions };
     }
   }

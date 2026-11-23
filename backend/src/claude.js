@@ -4,9 +4,19 @@
    ========================================================================== */
 import Anthropic from '@anthropic-ai/sdk';
 
-export const CHAT_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
+// 설정은 configureClaude() 로 (Node: process.env, Cloudflare: Worker 환경 변수 · 시크릿)
+export let CHAT_MODEL = 'claude-opus-5-5';
 // 짧은 Q&A라 low로 충분 (low | medium | high | xhigh | max)
-const EFFORT = process.env.CLAUDE_EFFORT || 'low';
+let EFFORT = 'low';
+let API_KEY = '';
+
+/** env: { ANTHROPIC_API_KEY?, CLAUDE_MODEL?, CLAUDE_EFFORT? } — 키가 바뀌면 클라이언트를 새로 만듦 */
+export function configureClaude(env = {}) {
+  CHAT_MODEL = env.CLAUDE_MODEL || 'claude-opus-5-5';
+  EFFORT = env.CLAUDE_EFFORT || 'low';
+  const key = env.ANTHROPIC_API_KEY || '';
+  if (key !== API_KEY) { API_KEY = key; client = null; }
+}
 
 /** 답변 모델을 쓸 수 없을 때 — rag.js가 받아서 "검색 모드"로 전환 */
 export class ChatUnavailableError extends Error {
@@ -16,11 +26,16 @@ export class ChatUnavailableError extends Error {
   }
 }
 
+/** Claude 키가 설정돼 있는지 (없으면 AI 기능은 건너뜀) */
+export const claudeEnabled = () => !!API_KEY;
+
 let client = null;
 function getClient() {
+  // 키가 없으면 API 를 부르지 않고 바로 검색 모드 · 기본 퀴즈로
+  if (!API_KEY) throw new ChatUnavailableError('no_api_key', 'ANTHROPIC_API_KEY 가 설정되지 않음');
   if (!client) {
     try {
-      client = new Anthropic(); // ANTHROPIC_API_KEY를 환경 변수(.env)에서 읽음
+      client = new Anthropic({ apiKey: API_KEY });
     } catch (err) {
       throw new ChatUnavailableError('no_api_key', `Claude 클라이언트를 만들 수 없음: ${err.message}`);
     }
@@ -50,8 +65,6 @@ async function call({ system, messages, format }) {
     if (err instanceof Anthropic.RateLimitError) throw new ChatUnavailableError('rate_limited', err.message);
     if (err instanceof Anthropic.APIConnectionError) throw new ChatUnavailableError('connection', err.message);
     if (err instanceof Anthropic.APIError) throw new ChatUnavailableError('api_error', `${err.status}: ${err.message}`);
-    // 키가 아예 없으면 SDK가 요청 시점에 일반 Error를 던짐
-    if (!process.env.ANTHROPIC_API_KEY) throw new ChatUnavailableError('no_api_key', 'ANTHROPIC_API_KEY가 .env에 없음');
     throw err;
   }
 
