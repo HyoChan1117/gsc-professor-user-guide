@@ -10,6 +10,7 @@
     "seed": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/seed.js",
     "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch src/server.js",
     "eval": "node --disable-warning=ExperimentalWarning scripts/eval-search.mjs && node --disable-warning=ExperimentalWarning scripts/eval-search.mjs --holdout",
+    "eval:check": "node --disable-warning=ExperimentalWarning scripts/eval-search.mjs --check && node --disable-warning=ExperimentalWarning scripts/eval-search.mjs --holdout --check",
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js"
   },
   "dependencies": {

@@ -126,3 +126,13 @@ console.log(`1위가 정답        ${pct(top1, answerable)}`);
 console.log(`3위 안에 정답     ${pct(top3, answerable)}`);
 console.log(`무관한 질문 거르기 ${pct(rejected, offTopic)}`);
 if (misses.length) console.log('\n' + misses.join('\n'));
+
+// --check: GitHub Actions 에서 정확도가 이 아래로 떨어지면 실패 (배포 중단). 지금 점수보다 조금 낮게 잡음
+const FLOOR = { top1: 0.75, reject: 0.75 };
+if (process.argv.includes('--check')) {
+  const bad = [];
+  if (top1 / answerable < FLOOR.top1) bad.push(`1위 정답률 ${Math.round((top1 / answerable) * 100)}% < ${FLOOR.top1 * 100}%`);
+  if (rejected / offTopic < FLOOR.reject) bad.push(`무관한 질문 거르기 ${Math.round((rejected / offTopic) * 100)}% < ${FLOOR.reject * 100}%`);
+  if (bad.length) { console.error(`\n✗ 검색 정확도 기준 미달: ${bad.join(', ')}`); process.exitCode = 1; }
+  else console.log('\n✓ 검색 정확도 기준 통과');
+}

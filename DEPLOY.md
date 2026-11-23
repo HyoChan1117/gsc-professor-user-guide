@@ -18,27 +18,44 @@ powershell -ExecutionPolicy Bypass -File .\demo.ps1 -SkipBuild # 코드를 안 �
 - 관리자 페이지를 쓰려면 `backend/.env` 에 `ADMIN_PASSWORD=…` (공개 주소이므로 길고 어렵게)
 - 개발 서버(`npm run dev`)가 8787 포트를 쓰고 있으면 먼저 끄기
 
-## 계속 운영: Render
+## 계속 운영: GitHub Actions → Render
+
+`main` 에 push · merge 하면 **GitHub Actions** 가 빌드 → 검색 정확도 테스트 → 서버 실행 확인을 하고, 통과하면 **Render** 에 배포 신호를 보냅니다.
+사이트가 실제로 돌아가는 곳은 Render 입니다 (GitHub Actions · Pages 만으로는 서버와 DB를 띄울 수 없음).
+
+| 언제 | Actions 가 하는 일 |
+|---|---|
+| PR 을 열거나 고칠 때 | 빌드 + 테스트만 (PR 화면에 통과 · 실패 표시) |
+| `main` 에 push · merge | 테스트 통과 → Render 배포 훅 호출 → Render 가 새 코드로 다시 배포 |
+| Actions 탭 → Run workflow | 위와 같음 (수동) |
+
+워크플로: `.github/workflows/deploy.yml`. 테스트 기준은 `npm run eval:check` (1위 정답률 · 무관한 질문 거르기 75% 이상).
 
 ```
 npm run build   # 프론트 빌드(frontend/dist) + 백엔드 패키지 설치
 npm start       # DB 만들기(seed) → 서버 실행 (PORT 환경 변수, 기본 8787)
 ```
 
-### 처음 한 번: Render에 올리기
+### 처음 한 번: Render 서비스 만들기 + Actions 연결
 
 1. <https://render.com> 에 GitHub 계정으로 가입 (무료, 카드 필요 없음)
 2. **New → Blueprint** → 이 저장소 선택 → 저장소의 `render.yaml` 을 그대로 사용
+   (저장소 주인 계정에 Render GitHub 앱 설치가 필요 — 주인이 하는 게 가장 간단)
 3. 환경 변수 입력 화면에서
    - `ADMIN_PASSWORD`: 관리자 페이지 비밀번호 (길고 추측하기 어렵게)
    - `ANTHROPIC_API_KEY`: 비워 둬도 됨 (넣으면 AI 답변 · AI 퀴즈가 켜짐)
-4. **Apply** → 몇 분 뒤 `https://<서비스 이름>.onrender.com` 주소가 생김
+4. **Apply** → 첫 배포 후 `https://<서비스 이름>.onrender.com` 주소가 생김
+5. Render 서비스 → **Settings → Deploy Hook** 주소 복사
+6. GitHub 저장소 → **Settings → Secrets and variables → Actions → New repository secret**
+   - 이름 `RENDER_DEPLOY_HOOK_URL`, 값 = 5번 주소 (**저장소 주인 · 관리자만** 추가 가능)
 
-그다음부터는 **`main` 브랜치에 push 하면 자동으로 다시 배포**됩니다.
+이후 `main` 에 merge 하면 Actions 가 테스트하고 배포합니다. `render.yaml` 의 `autoDeploy: false` 라서 테스트를 통과하지 못한 코드는 배포되지 않습니다.
+시크릿이 없으면 Actions 는 테스트만 하고 배포 단계는 건너뜁니다 (실패로 표시되지 않음).
 
 ### 확인
 
-- `https://<주소>/api/health` → `{"ok":true,"chunks":30,...}`
+- GitHub 저장소 **Actions** 탭 → "Build, test & deploy" 가 초록색
+- `https://<주소>/api/health` → `{"ok":true,"chunks":49,...}`
 - 홈 GREP 창에 질문 → 자료가 나오면 정상
 - `https://<주소>/admin` → `ADMIN_PASSWORD` 로 로그인
 

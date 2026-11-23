@@ -1,0 +1,84 @@
+# GitHub Actions — 빌드 · 테스트 → (main 일 때) Render 배포
+#
+#  PR            : 빌드 + 검색 정확도 테스트 + 서버 실행 확인 (배포 안 함)
+#  main push/merge: 위 테스트 통과 → Render 배포 훅 호출 → Render 가 새 코드로 다시 배포
+#  수동 실행      : Actions 탭 → "Build, test & deploy" → Run workflow
+#
+#  필요한 설정 (저장소 주인이 한 번): Settings → Secrets and variables → Actions → New repository secret
+#    RENDER_DEPLOY_HOOK_URL = Render 서비스 → Settings → Deploy Hook 주소
+#  비어 있으면 테스트만 하고 배포 단계는 건너뜁니다 (실패 아님). 자세한 순서: DEPLOY.md
+name: Build, test & deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      - name: Build (frontend + backend 패키지)
+        run: npm run build
+
+      - name: DB 만들기 (seed — API 키 필요 없음)
+        run: npm run seed --prefix backend
+
+      - name: 검색 정확도 테스트
+        run: npm run eval:check --prefix backend
+
+      - name: 서버 실행 확인 (화면 · API)
+        run: |
+          PORT=8787 npm start --prefix backend > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8787/api/health > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:8787/api/health
+          echo
+          curl -fsS -o /dev/null -w "GET / → %{http_code}\n" http://localhost:8787/
+          curl -fsS -o /dev/null -w "GET /dialect → %{http_code}\n" http://localhost:8787/dialect
+          curl -fsS -X POST http://localhost:8787/api/chat \
+            -H 'Content-Type: application/json' \
+            -d '{"profId":"jeong","lang":"ko","message":"면담 갈 때 뭘 준비해야 돼?"}' | grep -Eq '"mode":"(retrieval|generate)"'
+          echo "챗봇 검색 OK"
+
+      - name: 서버 로그 (실패했을 때)
+        if: failure()
+        run: cat server.log || true
+
+  deploy:
+    name: Deploy to Render
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Render 배포 훅 호출
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::RENDER_DEPLOY_HOOK_URL 시크릿이 없어 배포를 건너뜁니다 (테스트는 통과). DEPLOY.md 참고."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null
+          echo "Render 배포를 시작했습니다. 진행 상황은 Render 대시보드 → Events 에서 확인하세요."
