@@ -11,10 +11,12 @@ const SOURCE_LINK = {
   talk: '/talk', dict: '/dialect', posts: '/#thread',
 };
 
+// 예시 질문 — 세 번째는 교수님별 사전 미리보기 첫 항목으로
 const SUGGEST = {
-  ko: ['면담 가기 전에 뭘 준비해야 해?', '교수님이랑 무슨 얘기하면 좋아?', '“시마이하자”가 무슨 뜻이야?'],
-  ja: ['面談の前に何を準備すればいい？', '先生と何を話せばいい？', '「시마이하자」ってどういう意味？'],
+  ko: ['면담 가기 전에 뭘 준비해야 해?', '교수님이랑 무슨 얘기하면 좋아?'],
+  ja: ['面談の前に何を準備すればいい？', '先生と何を話せばいい？'],
 };
+const termQuestion = (term, lang) => (lang === 'ja' ? `「${term}」ってどういう意味？` : `“${term}” 무슨 뜻이야?`);
 
 /* 답변 텍스트 → 화면 (마크다운 일부만: **굵게**, "- " 목록, [1] 출처 번호)
    HTML을 직접 넣지 않고 React 요소로 만들기 때문에 안전함 */
@@ -126,7 +128,7 @@ export default function GrepChat() {
 
       {log.length === 0 ? (
         <div className="chat-suggest" aria-label={t('예시 질문', '質問の例')}>
-          {SUGGEST[lang].map((s) => (
+          {[...SUGGEST[lang], ...(prof.dictPreview?.[0] ? [termQuestion(prof.dictPreview[0].term, lang)] : [])].map((s) => (
             <button key={s} type="button" onClick={() => ask(s)}>{s}</button>
           ))}
         </div>
