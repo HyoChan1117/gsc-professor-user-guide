@@ -1,6 +1,6 @@
 # 배포
 
-**배포는 GitHub Actions, 서버 · DB 는 Cloudflare** 입니다. API 키 없이 동작합니다.
+**GitHub Actions로 Cloudflare Workers와 D1에 배포합니다.** 배포에는 Cloudflare 토큰이 필요합니다. 챗봇은 별도 AI 키 없이 Workers AI로 위키 자료를 요약합니다.
 
 | 무엇 | 어디 |
 |---|---|
@@ -14,9 +14,9 @@
 
 | 언제 | GitHub Actions 가 하는 일 |
 |---|---|
-| PR 을 열거나 고칠 때 | 빌드 → 검색 정확도 테스트 → 서버 · API 전체 점검 → Cloudflare 번들 확인 (**배포 안 함**) |
+| PR 을 열거나 고칠 때 | 빌드 → 검색·챗봇 테스트 → Node 및 로컬 Workers/D1 기능 점검 |
 | `main` 에 push · merge | 위 테스트 통과 → D1 준비 · 기본 자료 반영 → Workers 배포 → 배포된 주소 점검 |
-| Actions 탭 → Run workflow | 위와 같음 (수동) |
+| Actions 탭 → Run workflow (브랜치 `main`) | 위와 같음 (수동) |
 
 - 테스트를 하나라도 통과하지 못하면 배포하지 않습니다.
 - 배포할 때 기본 자료(`backend/data/profs.json`)만 다시 넣고, **선배 제보 · 한마디 · 챗봇 기록은 그대로** 둡니다. D1 은 계속 유지되므로 재배포해도 데이터가 사라지지 않습니다.
@@ -36,27 +36,27 @@
    | `CLOUDFLARE_API_TOKEN` | 4번 토큰 | 필수 |
    | `CLOUDFLARE_ACCOUNT_ID` | 3번 계정 ID | 필수 |
    | `ADMIN_PASSWORD` | 관리자 페이지 비밀번호 (길고 추측하기 어렵게) | 선택 |
-   | `ANTHROPIC_API_KEY` | Claude API 키 — 넣으면 AI 답변 · AI 퀴즈 · 제보 AI 정리가 켜짐 | 선택 |
+   | `ANTHROPIC_API_KEY` | Claude 답변 · AI 퀴즈 · 제보 AI 정리를 사용하는 경우에만 등록. 등록하면 챗봇도 Claude를 사용합니다. | 선택 |
 
 6. **Actions** 탭 → "Test & deploy to Cloudflare" → **Run workflow** (또는 `main` 에 아무 merge)
 7. 실행 결과 맨 아래 **배포 완료: https://….workers.dev** 주소 확인
 
 D1 데이터베이스(`gsc-db`)는 Actions 가 처음 배포할 때 **자동으로 만듭니다.** 시크릿은 저장소 주인 · 관리자만 추가할 수 있습니다.
-시크릿이 없으면 Actions 는 테스트만 하고 배포는 건너뜁니다 (실패로 표시되지 않음).
+Cloudflare 배포 시크릿이 빠져 있으면 배포 작업은 실패하고 누락된 항목을 표시합니다.
 
 ## 확인
 
 - GitHub **Actions** 탭에서 초록색 체크
-- `https://<주소>/api/health` → `{"ok":true,"chunks":49,…,"runtime":"d1"}`
-- 홈 GREP 창에 질문 → 자료가 나오면 정상
+- `https://<주소>/api/health`에서 `ok: true`, 양수인 `chunks`, `runtime: "d1"`을 확인합니다. Workers AI가 연결되면 `chatModel`에 모델 이름이 나옵니다.
+- 홈 GREP 창에서 “면담 갈 때 뭘 준비해야 돼?”를 질문해 답변과 위키 출처를 확인합니다. Claude 키가 없으면 기본 4지선다 퀴즈가 나옵니다.
 - `https://<주소>/admin` → `ADMIN_PASSWORD` 로 로그인
 
-## 무료 플랜 한도 (대략 — 정확한 값은 Cloudflare 요금 페이지에서 확인)
+## 무료 플랜 한도
 
 - Workers: 하루 요청 10만 번
 - D1: 저장 5GB, 하루 읽기 500만 행 · 쓰기 10만 행
+- Workers AI: 하루 10,000 Neurons. 모델과 입력·출력 길이에 따라 사용량이 달라집니다. 무료 한도에 도달하거나 답변 생성에 실패하면 챗봇이 검색 결과와 출처를 보여줍니다. 관련 자료가 없는 질문에는 AI를 호출하지 않습니다. [Workers AI 요금](https://developers.cloudflare.com/workers-ai/platform/pricing/)
 
-학과 사이트 규모로는 넉넉합니다. 잠들기(콜드 스타트)도 없습니다.
 
 ## 내 PC 에서 Cloudflare 와 똑같이 돌려 보기 (선택)
 
@@ -64,10 +64,12 @@ D1 데이터베이스(`gsc-db`)는 Actions 가 처음 배포할 때 **자동으�
 npm ci
 npm run build
 npm run cf:seed:local     # 내 PC 의 가짜 D1 에 표 + 기본 자료
-npm run cf:dev            # http://localhost:8787 — 실제 Workers 런타임으로 실행
+npm run cf:dev            # http://localhost:8787 — 로컬 Workers/D1, 검색형 챗봇
 ```
 
 관리자 비밀번호는 저장소 폴더에 `.dev.vars` 파일을 만들고 `ADMIN_PASSWORD=…` 한 줄 (커밋되지 않음).
+
+실제 Workers AI도 로컬 화면에서 확인하려면 Cloudflare 계정으로 Wrangler에 로그인하고 `npx wrangler dev`를 실행합니다. AI 호출은 Cloudflare 한도를 사용합니다. PR의 자동 테스트는 AI 바인딩 응답을 재현해 테스트하므로 API 키와 Cloudflare 로그인 없이 실행됩니다.
 
 ## 발표 · 시연 백업: 내 PC + Cloudflare Tunnel
 

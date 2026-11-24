@@ -1,6 +1,6 @@
 # GitHub Actions — 테스트 → (main 일 때) Cloudflare 배포
 #
-#  PR             : 빌드 + 검색 정확도 + 서버 · API 전체 점검 + Cloudflare 번들 확인 (배포 안 함)
+#  PR             : 빌드 + 검색 정확도 + Node 및 Workers/D1 기능 점검 (배포 안 함)
 #  main push/merge: 위 테스트 통과 → Cloudflare D1(DB) 준비 · 기본 자료 반영 → Workers 배포 → 배포된 주소 점검
 #  수동 실행       : Actions 탭 → "Test & deploy to Cloudflare" → Run workflow
 #
@@ -8,8 +8,8 @@
 #    CLOUDFLARE_API_TOKEN   Cloudflare API 토큰 ("Edit Cloudflare Workers" 템플릿 + D1 Edit 권한)
 #    CLOUDFLARE_ACCOUNT_ID  Cloudflare 계정 ID
 #    ADMIN_PASSWORD         (선택) 관리자 페이지 비밀번호
-#    ANTHROPIC_API_KEY      (선택) 넣으면 AI 답변 · AI 퀴즈 · 제보 AI 정리가 켜짐
-#  Cloudflare 시크릿이 없으면 테스트만 하고 배포는 건너뜁니다 (실패 아님). 자세한 순서: DEPLOY.md
+#    ANTHROPIC_API_KEY      (선택) Claude 답변 · AI 퀴즈 · 제보 AI 정리를 쓰려는 경우
+#  Cloudflare 배포에 필요한 시크릿은 DEPLOY.md 참고.
 name: Test & deploy to Cloudflare
 
 on:
@@ -49,11 +49,16 @@ jobs:
       - name: 검색 정확도 테스트
         run: npm run eval:check --prefix backend
 
+      - name: Workers AI 응답과 검색 모드 전환 검증
+        run: node --test backend/scripts/chat-model.test.mjs
+
       - name: 서버 · API 전체 점검 (제보 → 게시 → 챗봇, 한마디 → 숨기기 → 삭제)
         env:
           CI_ADMIN_PASSWORD: ci-only-test-password
+          SMOKE_EXPECT_RUNTIME: node
         run: |
           PORT=8787 ADMIN_PASSWORD="$CI_ADMIN_PASSWORD" npm start --prefix backend > server.log 2>&1 &
+          trap 'kill "$!" 2>/dev/null || true' EXIT
           for i in $(seq 1 30); do curl -fs http://localhost:8787/api/health > /dev/null && break; sleep 1; done
           node backend/scripts/smoke-test.mjs http://localhost:8787 "$CI_ADMIN_PASSWORD"
 
@@ -62,9 +67,20 @@ jobs:
           npm ci
           npx wrangler deploy --dry-run --outdir worker-bundle
 
+      - name: 로컬 Workers/D1 기능 점검
+        env:
+          CI_ADMIN_PASSWORD: ci-only-test-password
+          SMOKE_EXPECT_RUNTIME: d1
+        run: |
+          npm run cf:seed:local
+          node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 8788 --var WORKERS_AI_ENABLED:false --var "ADMIN_PASSWORD:$CI_ADMIN_PASSWORD" > worker.log 2>&1 &
+          trap 'kill "$!" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8788/api/health > /dev/null && break; sleep 1; done
+          node backend/scripts/smoke-test.mjs http://127.0.0.1:8788 "$CI_ADMIN_PASSWORD"
+
       - name: 서버 로그 (실패했을 때)
         if: failure()
-        run: cat server.log || true
+        run: cat server.log worker.log 2>/dev/null || true
 
   deploy:
     name: Deploy to Cloudflare
@@ -77,20 +93,15 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Cloudflare 시크릿 확인
-        id: check
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID 시크릿이 없어 배포를 건너뜁니다 (테스트는 통과). DEPLOY.md 참고."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "::error::배포에 필요한 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID를 등록해 주세요. DEPLOY.md 참고."
+            exit 1
           fi
 
       - uses: actions/checkout@v4
-        if: steps.check.outputs.ready == 'true'
 
       - uses: actions/setup-node@v4
-        if: steps.check.outputs.ready == 'true'
         with:
           node-version: 22
           cache: npm
@@ -100,14 +111,13 @@ jobs:
             backend/package-lock.json
 
       - name: Build + D1 용 기본 자료 SQL
-        if: steps.check.outputs.ready == 'true'
         run: |
           npm ci
           npm run build
           npm run seed:sql --prefix backend
 
       - name: D1 데이터베이스 준비 (gsc-db — 없으면 만들기)
-        if: steps.check.outputs.ready == 'true'
+        shell: bash
         run: |
           find_id() {
             npx wrangler d1 list --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const d=JSON.parse(s).find(x=>x.name==='gsc-db');process.stdout.write(d?(d.uuid||d.id||''):'')})"
@@ -123,32 +133,34 @@ jobs:
           echo "D1 gsc-db = $ID"
 
       - name: 표 만들기 + 기본 자료 반영 (제보 · 한마디 · 챗봇 기록은 그대로)
-        if: steps.check.outputs.ready == 'true'
         run: npx wrangler d1 execute gsc-db --remote --file backend/data/d1-seed.sql -y
 
       - name: Workers 배포
         id: deploy
-        if: steps.check.outputs.ready == 'true'
+        shell: bash
         run: |
           npx wrangler deploy | tee deploy.log
-          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          URL=$(grep -m1 -oE 'https://gsc-professor-user-guide\.[a-zA-Z0-9-]+\.workers\.dev' deploy.log) || {
+            echo "::error::workers.dev 배포 주소를 찾지 못했습니다. Cloudflare에서 workers.dev 하위 주소를 설정해 주세요."
+            exit 1
+          }
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Worker 시크릿 반영 (ADMIN_PASSWORD · ANTHROPIC_API_KEY — 있을 때만)
-        if: steps.check.outputs.ready == 'true'
         env:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           if [ -n "$ADMIN_PASSWORD" ]; then printf '%s' "$ADMIN_PASSWORD" | npx wrangler secret put ADMIN_PASSWORD
-          else echo "ADMIN_PASSWORD 없음 — 관리자 페이지 꺼짐"; fi
+          else echo "ADMIN_PASSWORD 시크릿 미등록"; fi
           if [ -n "$ANTHROPIC_API_KEY" ]; then printf '%s' "$ANTHROPIC_API_KEY" | npx wrangler secret put ANTHROPIC_API_KEY
-          else echo "ANTHROPIC_API_KEY 없음 — 키워드 검색 + 기본 퀴즈로 동작"; fi
+          else echo "ANTHROPIC_API_KEY 시크릿 미등록"; fi
 
       - name: 배포된 주소 점검 (읽기 전용)
-        if: steps.check.outputs.ready == 'true' && steps.deploy.outputs.url != ''
+        env:
+          SMOKE_EXPECT_RUNTIME: d1
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
         run: |
-          URL="${{ steps.deploy.outputs.url }}"
-          for i in $(seq 1 20); do curl -fs "$URL/api/health" > /dev/null && break; sleep 3; done
-          node backend/scripts/smoke-test.mjs "$URL" --readonly
-          echo "### 배포 완료: $URL" >> "$GITHUB_STEP_SUMMARY"
+          for i in $(seq 1 20); do curl -fs "$DEPLOY_URL/api/health" > /dev/null && break; sleep 3; done
+          node backend/scripts/smoke-test.mjs "$DEPLOY_URL" --readonly
+          echo "### 배포 완료: $DEPLOY_URL" >> "$GITHUB_STEP_SUMMARY"

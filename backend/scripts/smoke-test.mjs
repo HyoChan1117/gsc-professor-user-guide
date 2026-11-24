@@ -8,6 +8,7 @@
 const BASE = (process.argv[2] || 'http://localhost:8787').replace(/\/$/, '');
 const READONLY = process.argv.includes('--readonly');
 const PASSWORD = READONLY ? '' : (process.argv.slice(3).find((a) => !a.startsWith('--')) || '');
+const EXPECT_RUNTIME = process.env.SMOKE_EXPECT_RUNTIME;
 
 let failed = 0;
 const ok = (cond, label, extra = '') => {
@@ -27,12 +28,16 @@ async function call(path, { method = 'GET', body, token } = {}) {
 }
 
 const health = await call('/api/health');
-ok(health.status === 200 && health.data.ok, 'health', `chunks ${health.data.chunks}, ${health.data.runtime}`);
+ok(health.status === 200 && health.data?.ok && health.data.chunks > 0
+  && (!EXPECT_RUNTIME || health.data.runtime === EXPECT_RUNTIME),
+  'health', `chunks ${health.data?.chunks}, ${health.data?.runtime}`);
 
 const home = await call('/');
 ok(home.status === 200 && home.type.includes('text/html'), '화면 /');
 const deep = await call('/dialect');
 ok(deep.status === 200 && deep.type.includes('text/html'), '화면 /dialect (새로고침)');
+const quizPage = await call('/quiz');
+ok(quizPage.status === 200 && quizPage.type.includes('text/html'), '화면 /quiz (새로고침)');
 ok((await call('/api/nope')).status === 404, '없는 API → 404');
 
 const profs = await call('/api/profs');
@@ -40,20 +45,24 @@ ok(Array.isArray(profs.data) && profs.data.length >= 2, '교수님 목록', prof
 const view = await call('/api/profs/fukka');
 ok(view.data?.talk?.length >= 6 && view.data?.dict?.length >= 7, '후까 교수님 데이터', `talk ${view.data?.talk?.length}, dict ${view.data?.dict?.length}`);
 
+const opts = await call('/api/contrib/jeong/options');
+ok(opts.data?.scenes?.length >= 3, '제보 폼 선택지');
+const thread = await call('/api/thread/fukka');
+ok(thread.status === 200 && Array.isArray(thread.data?.posts), '한마디 목록');
+if (READONLY) {
+  console.log(failed ? `\n✗ ${failed}개 실패` : '\n✓ 모두 통과 (읽기 전용 점검)');
+  process.exit(failed ? 1 : 0);
+}
+
 const chat = await call('/api/chat', { method: 'POST', body: { profId: 'jeong', lang: 'ko', message: '면담 갈 때 뭘 준비해야 돼?' } });
 ok(['retrieval', 'generate'].includes(chat.data?.mode) && chat.data.sources?.[0]?.title?.includes('면담'), '챗봇 검색', chat.data?.sources?.[0]?.title);
 const empty = await call('/api/chat', { method: 'POST', body: { profId: 'jeong', lang: 'ko', message: '기숙사 신청 언제야' } });
 ok(empty.data?.mode === 'empty', '자료 없는 질문 → 제보 유도');
 
 const quiz = await call('/api/quiz', { method: 'POST', body: { profId: 'jeong', lang: 'ko' } });
-ok(quiz.data?.questions?.length > 0, '퀴즈', `${quiz.data?.mode} ${quiz.data?.questions?.length}문제`);
-
-const opts = await call('/api/contrib/jeong/options');
-ok(opts.data?.scenes?.length >= 3, '제보 폼 선택지');
-if (READONLY) {
-  console.log(failed ? `\n✗ ${failed}개 실패` : '\n✓ 모두 통과 (읽기 전용 점검)');
-  process.exit(failed ? 1 : 0);
-}
+ok(quiz.status === 200 && quiz.data?.questions?.length === 5 && quiz.data.questions.every((q) =>
+  q.choices?.length === 4 && Number.isInteger(q.answer) && q.answer >= 0 && q.answer < 4),
+  '퀴즈', `${quiz.data?.mode} ${quiz.data?.questions?.length}문제`);
 
 const marker = `스모크테스트${Date.now().toString(36)}`;
 const contrib = await call('/api/contrib', { method: 'POST', body: { kind: 'talk', profId: 'jeong', lang: 'ko', grade: '2', title: marker, body: `${marker} 이야기를 좋아하신다는 테스트 제보` } });

@@ -85,7 +85,7 @@ export default function QuizPage() {
 
   const startBtn = (label) => (
     <button type="button" className="btn-primary quiz-btn" onClick={start} disabled={phase === 'loading'}>
-      {phase === 'loading' ? t('AI가 문제를 만드는 중…', 'AIが問題を作成中…') : label}
+      {phase === 'loading' ? t('문제를 준비하는 중…', '問題を準備中…') : label}
     </button>
   );
 
@@ -94,7 +94,7 @@ export default function QuizPage() {
       <PageHero
         file="// 07 quiz.test.js"
         title={t(`${short} 교수님 퀴즈`, `${short}教授クイズ`)}
-        lead={t('AI가 선배들의 자료로 매번 새로운 문제를 내요.', 'AIが先輩の資料から毎回新しい問題を出します。')}
+        lead={t('선배들의 자료로 만든 4지선다 퀴즈를 풀어 보세요.', '先輩の資料をもとにした4択クイズに挑戦しよう。')}
         desc={t(
           '5문제 4지선다. 풀 때마다 다른 자료 · 다른 유형으로 출제되고, 최근에 푼 문제는 피해서 나와요.',
           '5問の4択。毎回ちがう資料・ちがうタイプで出題され、最近解いた問題は避けて出ます。'
@@ -185,7 +185,7 @@ export default function QuizPage() {
 
           {quiz?.mode === 'basic' && phase !== 'start' && (
             <p className="quiz-note c-comment">
-              {t('# 지금은 AI를 쓸 수 없어 기본 문제로 출제했어요.', '# 現在AIが使えないため、基本問題で出題しています。')}
+              {t('# 위키 자료에서 고른 기본 문제예요.', '# ウィキの資料から選んだ基本問題です。')}
             </p>
           )}
         </div>

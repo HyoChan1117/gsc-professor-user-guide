@@ -3,7 +3,7 @@
    GET  /api/health          상태 확인
    GET  /api/profs           교수님 목록
    GET  /api/profs/:id       홈 · 섹션 데이터 (DB + 게시된 선배 제보를 섹션 항목으로 합침 — view.js)
-   POST /api/chat            챗봇 (키워드 검색 + 선택: Claude 답변)  { profId, lang, message, history? }
+   POST /api/chat            챗봇 (키워드 검색 + AI 답변)  { profId, lang, message, history? }
    POST /api/quiz            퀴즈 { profId, lang, exclude? } → { mode, questions }
    POST /api/contrib         섹션별 익명 제보 (contrib.js)
    GET  /api/contrib/:id/options 제보 폼 선택지
@@ -13,7 +13,8 @@
 import { Hono } from 'hono';
 import { createRag } from './rag.js';
 import { SEARCH_MODEL } from './search.js';
-import { CHAT_MODEL, configureClaude } from './claude.js';
+import { configureClaude } from './claude.js';
+import { createChatModel } from './chatModel.js';
 import { mountAdmin } from './admin.js';
 import { createQuiz } from './quiz.js';
 import { mountContrib } from './contrib.js';
@@ -25,12 +26,13 @@ import { makeRateLimit, readJson } from './http.js';
 
 /**
  * db: db.js(Node) 또는 d1.js(Cloudflare) 가 만든 DB
- * env: { ADMIN_PASSWORD?, ANTHROPIC_API_KEY?, CLAUDE_MODEL?, CLAUDE_EFFORT?, TRUST_PROXY? }
+ * env: { AI?, WORKERS_AI_ENABLED?, ADMIN_PASSWORD?, ANTHROPIC_API_KEY?, CLAUDE_MODEL?, CLAUDE_EFFORT?, TRUST_PROXY? }
  * 반환: { app, rag, contribIndex, organizer }
  */
 export function createApp(db, env = {}) {
   configureClaude(env);
-  const rag = createRag(db);
+  const chatModel = createChatModel(env);
+  const rag = createRag(db, chatModel);
   const contribIndex = createContribIndex(db, rag); // 게시된 선배 제보 → 챗봇 검색 자료
   const organizer = createOrganizer(db, contribIndex); // 제보 AI 정리 (Claude 키가 있을 때만)
   const quiz = createQuiz(db);
@@ -47,7 +49,7 @@ export function createApp(db, env = {}) {
 
   app.get('/api/health', async (c) => {
     const { n } = await db.prepare('SELECT COUNT(*) AS n FROM chunks').get();
-    return c.json({ ok: true, chunks: n, chatModel: CHAT_MODEL, search: SEARCH_MODEL, runtime: db.kind });
+    return c.json({ ok: true, chunks: n, chatModel: chatModel?.model ?? null, search: SEARCH_MODEL, runtime: db.kind });
   });
 
   app.get('/api/profs', async (c) => c.json(await db.prepare('SELECT id, name_ko, name_ja, short_ko, short_ja, has_avatar FROM professors').all()));

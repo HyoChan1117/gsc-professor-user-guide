@@ -20,6 +20,8 @@
     { "binding": "DB", "database_name": "gsc-db", "database_id": "00000000-0000-0000-0000-000000000000" }
   ],
 
+  "ai": { "binding": "AI" },
+
   // 비밀 값(ADMIN_PASSWORD, ANTHROPIC_API_KEY)은 여기 쓰지 않고 Worker 시크릿으로 (Actions 가 넣어 줌)
   "observability": { "enabled": true }
 }

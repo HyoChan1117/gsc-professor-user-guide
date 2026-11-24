@@ -9,7 +9,7 @@
     "build": "npm ci --prefix frontend --include=dev && npm run build --prefix frontend && npm ci --prefix backend --omit=dev",
     "start": "npm run seed --prefix backend && npm start --prefix backend",
     "cf:seed:local": "npm run seed:sql --prefix backend && wrangler d1 execute gsc-db --local --file backend/data/d1-seed.sql",
-    "cf:dev": "wrangler dev",
+    "cf:dev": "wrangler dev --local --var WORKERS_AI_ENABLED:false",
     "test": "npm run eval:check --prefix backend"
   },
   "devDependencies": {
