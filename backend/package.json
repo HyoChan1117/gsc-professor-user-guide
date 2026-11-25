@@ -10,10 +10,13 @@
     "seed": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/seed.js",
     "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch src/server.js",
     "eval": "node --disable-warning=ExperimentalWarning scripts/eval-search.mjs && node --disable-warning=ExperimentalWarning scripts/eval-search.mjs --holdout",
-    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js"
+    "eval:check": "node --disable-warning=ExperimentalWarning scripts/eval-search.mjs --check && node --disable-warning=ExperimentalWarning scripts/eval-search.mjs --holdout --check",
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
+    "seed:sql": "node scripts/seed-sql.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.11.0",
-    "express": "^4.21.2"
+    "@hono/node-server": "^2.1.11",
+    "hono": "^4.13.20"
   }
 }

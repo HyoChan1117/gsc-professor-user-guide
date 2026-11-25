@@ -143,6 +143,7 @@ export default function GrepChat() {
               <div className="chat-msg chat-msg--user" key={i}><span className="c-green">&gt;</span> {m.content}</div>
             ) : (
               <div className={'chat-msg chat-msg--bot' + (m.error ? ' is-error' : '')} key={i}>
+                {m.mode === 'generate' && <div className="chat-notice">{t('AI가 위키 자료를 바탕으로 작성한 답변이에요.', 'ウィキの資料をもとにAIが作成した回答です。')}</div>}
                 {m.notice && <div className="chat-notice">{m.noticeType === 'info' ? '// ' : '⚠ '}{m.notice}</div>}
                 {m.error ? <div className="chat-text"><p>{m.content}</p></div> : <Answer text={m.content} />}
                 {m.sources?.length > 0 && (

@@ -2,7 +2,9 @@
 
 홈 히어로의 GREP 입력창에 질문하면, 선배들의 설문 자료(DB)에서 관련 내용을 찾아 답하는 API 서버입니다.
 
-- **DB**: SQLite (`data/gsc.db`) — Node 내장 `node:sqlite` 사용, 별도 설치 없음 (Node 22.13 이상)
+- **실행 환경**: 같은 코드가 두 곳에서 돌아갑니다 — **Cloudflare Workers + D1** (배포, `src/worker.js`) / **Node + SQLite 파일** (내 PC · 테스트 · 발표 백업, `src/server.js`). 배포 순서는 저장소 맨 위 `DEPLOY.md`
+- **DB**: Cloudflare D1 / 내 PC 는 SQLite (`data/gsc.db`, Node 내장 `node:sqlite`, Node 22.13 이상) — 표 구조는 `src/schema.js` 하나
+- **라우터**: Hono (Workers · Node 공용)
 - **검색**: 키워드 검색 (`src/search.js` — 글자 2개 단위 + BM25 + 비슷한 말 사전). **API 키 필요 없음**
 - **답변**: 기본은 찾은 자료를 그대로 보여 주는 **검색 모드**. (선택) `ANTHROPIC_API_KEY`를 넣으면 Claude가 자료를 바탕으로 답변 · 퀴즈 출제 · 제보 정리
 
@@ -34,7 +36,7 @@ cd frontend && npm run export-data
 cd ../backend && npm run seed     # 테이블 비우고 다시 채움
 ```
 
-서버가 켜져 있으면 재시작하세요 (검색 색인을 메모리에 캐시함).
+서버가 켜져 있으면 재시작하세요 (검색 색인을 최대 1분 메모리에 캐시함). 배포 환경은 `main` 에 merge 하면 Actions 가 D1 에 반영합니다.
 
 ## 검색 정확도 확인
 
@@ -83,8 +85,17 @@ CASES(조정용)만 보고 고치면 점수가 부풀려지니, HOLDOUT(검증�
 ## 파일
 
 ```
-src/db.js       DB 연결 + 스키마
-src/seed.js     data/profs.json → 테이블 + 검색 청크
+src/app.js      API 라우트 전체 (Workers · Node 공용)
+src/worker.js   Cloudflare Workers 진입점 (D1)
+src/server.js   Node 서버 (SQLite 파일 + 빌드된 프론트 제공)
+src/schema.js   표 구조 (D1 · SQLite 공용)
+src/db.js       Node SQLite 연결 (비동기 인터페이스)
+src/d1.js       Cloudflare D1 연결 (같은 인터페이스)
+src/http.js     접속자 IP · 요청 제한 · JSON 본문 · 백그라운드 작업
+src/seedData.js data/profs.json → 기본 자료 SQL 문장 (제보 · 한마디 · 챗봇 기록은 건드리지 않음)
+src/seed.js     Node: 기본 자료 넣기 (npm run seed)
+scripts/seed-sql.mjs  D1: 같은 내용을 SQL 파일로 (npm run seed:sql — Actions 가 사용)
+scripts/smoke-test.mjs API 전체 점검 (node scripts/smoke-test.mjs <주소> [관리자 비밀번호])
 src/search.js   키워드 검색 (글자 2개 단위 + BM25 + 비슷한 말)
 src/claude.js   Claude 답변 생성 (오류 → ChatUnavailableError → 검색 모드)
 src/rag.js      검색 + 프롬프트 + 답변 (검색 모드 대체 포함)
@@ -94,7 +105,6 @@ src/contribIndex.js 게시된 제보 → 챗봇 검색 자료(chunks, source_ref
 src/organize.js 제보 AI 정리 (Claude 구조화 출력, 원문 보관, 관리자가 먼저 손대면 덮어쓰지 않음)
 src/thread.js   교수님께 한마디 (바로 공개 게시판 + 관리자 숨기기 · 삭제)
 src/quiz.js     AI 퀴즈 (자료 무작위 선택 → Claude 구조화 출력 → 보기 섞기, 기본 문제 대체)
-src/server.js   Express API
 ```
 
 ## 관리자 페이지 (`/admin`)
@@ -105,7 +115,7 @@ src/server.js   Express API
 > 게시하는 순간 **챗봇 검색 자료에도 추가**되고, 게시 취소 · 수정 · 삭제 시 함께 지워지거나 다시 만들어집니다.
 > AI 정리는 `ANTHROPIC_API_KEY`가 있을 때만 — 없으면 원문 그대로 검수 대기로 들어옵니다.
 
-1. `.env`에 `ADMIN_PASSWORD=길고-추측하기-어려운-값` 추가 → 서버 재시작 (비어 있으면 관리자 기능 꺼짐)
+1. 비밀번호 설정 (비어 있으면 관리자 기능 꺼짐) — 배포: GitHub 시크릿 `ADMIN_PASSWORD` (Actions 가 Worker 에 넣음) / 내 PC: `backend/.env` 에 `ADMIN_PASSWORD=…` 후 서버 재시작
 2. 브라우저에서 `http://localhost:5173/admin` → 비밀번호로 로그인 (메뉴에는 노출되지 않음)
 
 | 탭 | 내용 |
@@ -115,6 +125,6 @@ src/server.js   Express API
 | 한마디 | 교수님께 한마디 글 숨기기 · 다시 공개 · 삭제, 교수님 · 상태 · 내용 검색 |
 | 챗봇 기록 | 질문 · 답변 · 답변 방식 · 점수 확인, 검색, 삭제 |
 
-- 로그인 토큰은 서버 메모리(12시간)와 브라우저 탭(sessionStorage)에만 — 서버 재시작 · 탭 닫기 시 다시 로그인
+- 로그인 토큰은 비밀번호로 서명한 값(12시간)이라 서버에 저장하지 않음 — 브라우저 탭(sessionStorage)에만 두고, 탭을 닫거나 비밀번호를 바꾸면 다시 로그인
 - 로그인 시도는 IP당 1분에 5번
 - API: `src/admin.js` 맨 위 주석 참고

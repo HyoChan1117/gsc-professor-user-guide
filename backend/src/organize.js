@@ -5,7 +5,7 @@
    - 제보자는 기다리지 않음: 저장 후 백그라운드에서 실행, 서버 재시작 시 남은 것 다시 실행
    - 관리자가 먼저 손댄 제보(ai_status = skipped)는 덮어쓰지 않음
    ========================================================================== */
-import { generateJson, ChatUnavailableError, CHAT_MODEL } from './claude.js';
+import { generateJson, ChatUnavailableError, CHAT_MODEL, claudeEnabled } from './claude.js';
 import { validate } from './contrib.js';
 
 // AI가 다듬는 글 항목 (선택지 항목은 그대로 둠) — 프롬프트에 쓸 이름
@@ -80,16 +80,16 @@ export function createOrganizer(db, contribIndex) {
    */
   async function organize(id, { force = false } = {}) {
     if (running.has(id)) return { ok: false, error: 'busy' };
-    const row = rowStmt.get(id);
+    const row = await rowStmt.get(id);
     if (!row) return { ok: false, error: 'not_found' };
     if (!force && row.ai_status !== 'pending') return { ok: false, error: 'not_pending' };
     if (!TEXT_FIELDS[row.kind]) return { ok: false, error: 'unknown_kind' };
 
     running.add(id);
     const source = parse(row.original) ?? parse(row.data, {});
-    if (force) db.prepare(`UPDATE contributions SET ai_status = 'pending' WHERE id = ?`).run(id);
+    if (force) await db.prepare(`UPDATE contributions SET ai_status = 'pending' WHERE id = ?`).run(id);
     try {
-      const prof = profStmt.get(row.prof_id)?.name_ko ?? row.prof_id;
+      const prof = (await profStmt.get(row.prof_id))?.name_ko ?? row.prof_id;
       const isLines = (k) => LINES[row.kind]?.includes(k);
       const input = Object.fromEntries(Object.keys(TEXT_FIELDS[row.kind]).map((k) => [k,
         isLines(k) ? (source[k] || []).join('\n') : (source[k] ?? '')]));
@@ -124,15 +124,15 @@ export function createOrganizer(db, contribIndex) {
         reason: String(out.reason || '').slice(0, 500),
       };
       // 자동 정리 중에 관리자가 먼저 손댔으면(skipped) 덮어쓰지 않음
-      const info = db.prepare(`UPDATE contributions SET data = ?, ai_status = 'done', ai_note = ?
+      const info = await db.prepare(`UPDATE contributions SET data = ?, ai_status = 'done', ai_note = ?
         WHERE id = ? AND ai_status = 'pending'`).run(JSON.stringify(checked.data), JSON.stringify(note), id);
       if (!info.changes) return { ok: false, error: 'skipped' };
       if (row.status === 'published') await contribIndex?.sync(id); // 게시 중인 제보를 다시 정리한 경우 챗봇 자료도
-      return { ok: true, row: rowStmt.get(id) };
+      return { ok: true, row: await rowStmt.get(id) };
     } catch (err) {
       if (!(err instanceof ChatUnavailableError)) console.error('[organize]', err);
       else console.warn(`[organize] #${id} ${CHAT_MODEL} 정리 실패 → 원문 유지 (${err.code}: ${err.message})`);
-      db.prepare(`UPDATE contributions SET ai_status = 'failed', ai_note = ? WHERE id = ? AND ai_status = 'pending'`)
+      await db.prepare(`UPDATE contributions SET ai_status = 'failed', ai_note = ? WHERE id = ? AND ai_status = 'pending'`)
         .run(JSON.stringify({ changes: '', verdict: null, reason: '', error: err.code || 'error' }), id);
       return { ok: false, error: 'ai_failed' };
     } finally {
@@ -140,17 +140,13 @@ export function createOrganizer(db, contribIndex) {
     }
   }
 
-  /** 제보 저장 직후 — 응답을 기다리게 하지 않고 백그라운드로 */
-  function kick(id) {
-    organize(id).catch((err) => console.error('[organize]', err));
-  }
-
   /** 서버 시작 시 — 정리 중이던(pending) 제보 다시 실행 */
   async function organizePending() {
-    const ids = db.prepare(`SELECT id FROM contributions WHERE ai_status = 'pending' ORDER BY id`).all().map((r) => r.id);
+    const ids = (await db.prepare(`SELECT id FROM contributions WHERE ai_status = 'pending' ORDER BY id`).all()).map((r) => r.id);
     for (const id of ids) await organize(id);
     if (ids.length) console.log(`[organize] 대기 중이던 제보 ${ids.length}개 정리 시도`);
   }
 
-  return { organize, kick, organizePending };
+  // enabled: Claude 키가 있을 때만 제보를 AI 정리 대기(pending)로 저장 — 없으면 원문 그대로 검수 대기
+  return { organize, organizePending, enabled: claudeEnabled };
 }
